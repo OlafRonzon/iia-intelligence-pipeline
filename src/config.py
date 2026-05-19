@@ -1,4 +1,12 @@
 from pathlib import Path
+import os
+from dotenv import load_dotenv
+
+# Carga las variables del archivo .env
+load_dotenv()
+
+# Ahora la variable toma el valor de tu archivo secreto .env
+DISCOGS_TOKEN = os.getenv("DISCOGS_TOKEN")
 
 # ==========================================
 # 1. GESTIÓN DE RUTAS (PATHS) RELATIVAS

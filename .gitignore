@@ -219,4 +219,5 @@ __marimo__/
 d a t a / 0 3 _ p r o c e s s e d / m o d e l o _ n a r c o _ h e x a d i m e n s i o n a l . b i n data/
 Documentos/
 validacion_manual/ 
+*.bin
  

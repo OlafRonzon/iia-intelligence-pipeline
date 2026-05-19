@@ -1,146 +1,174 @@
-import os
-import time
-import random
+import asyncio
+import aiohttp
 import pandas as pd
-import discogs_client
+import os, re, random
 import sys
+from urllib.parse import quote
+from langdetect import detect
 from pathlib import Path
-from discogs_client.exceptions import HTTPError
 
-# --- BLOQUE DE CONEXIÓN ---
+# --- BLOQUE DE CONEXIÓN E INFRAESTRUCTURA ---
 directorio_actual = Path(__file__).resolve().parent
 if str(directorio_actual) not in sys.path:
     sys.path.append(str(directorio_actual))
 
 try:
-    # IMPORTANTE: Añadimos ESTILOS, PAIS y AÑOS a la importación
-    from config import DIR_INTERMEDIATE, ESTILOS, PAIS, AÑOS, DISCOGS_TOKEN
-    print("✅ Configuración y parámetros de búsqueda cargados.")
-except ImportError as e:
-    print(f"❌ Error al importar desde config.py: {e}")
-    sys.exit()
+    from config import DISCOGS_TOKEN, PATH_CORPUS_CRUDO
+except ImportError:
+    # Fallback para Colab si no detecta el archivo config.py
+    DISCOGS_TOKEN = os.getenv("DISCOGS_TOKEN", "TU_TOKEN_AQUI")
+    PATH_CORPUS_CRUDO = "/content/drive/MyDrive/letras_corpus_final.csv"
 
-# ---------- RUTAS EN INTERMEDIATE ----------
-# Ajustadas según tu solicitud
-ARCHIVO_SALIDA = DIR_INTERMEDIATE / "PATH_DISCOGS_LIMPIO.csv"
-ARCHIVO_PARCIAL = DIR_INTERMEDIATE / "PATH_DISCOGS_PROGRESO.csv"
+# ==========================================
+# 1. CONFIGURACIÓN
+# ==========================================
+ARCHIVO_SALIDA = PATH_CORPUS_CRUDO
 
-d = discogs_client.Client('CorpusExtractor/1.0', user_token=DISCOGS_TOKEN)
+ESTILOS_OBJETIVO = ['Corrido', 'Norteño', 'Trap', 'Hip Hop', 'Rap']
+MIN_CARACTERES = 150
+TAMANO_BUFFER = 50
 
-def extraer_releases_año(estilo, año):
-    releases = []
-    page = 1
-    per_page = 100
-    max_retries = 5
+LIMITE_CONCURRENCIA = asyncio.Semaphore(5)
 
-    while True:
-        retries = 0
-        success = False
-        pag_releases = []
+# ==========================================
+# 2. MOTORES OPTIMIZADOS CON FILTRO DE IDIOMA
+# ==========================================
 
-        while retries < max_retries:
+def guardar_en_disco(buffer_datos):
+    if not buffer_datos:
+        return
+    df = pd.DataFrame(buffer_datos)
+    
+    # Crea las carpetas necesarias en VS Code si no existen (ej. data/01_raw/)
+    os.makedirs(os.path.dirname(ARCHIVO_SALIDA), exist_ok=True)
+    
+    df.to_csv(ARCHIVO_SALIDA, mode='a', index=False, header=not os.path.exists(ARCHIVO_SALIDA), encoding='utf-8-sig')
+    buffer_datos.clear()
+    print(f"\n💾 [SISTEMA] ¡ÉXITO! Se ha guardado un bloque de canciones en:\n{ARCHIVO_SALIDA}\n")
+
+async def buscar_en_lrclib(session, artista, cancion):
+    url = f"https://lrclib.net/api/get?artist_name={quote(artista)}&track_name={quote(cancion)}"
+    try:
+        async with session.get(url, timeout=8) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                return data.get('plainLyrics') or data.get('syncedLyrics')
+    except:
+        pass
+    return None
+
+async def procesar_cancion(session, artista_limpio, album_nombre, año_release, t, buffer_datos):
+    async with LIMITE_CONCURRENCIA:
+        letra = await buscar_en_lrclib(session, artista_limpio, t)
+
+        if letra and len(letra) >= MIN_CARACTERES:
+            # --- INICIO DEL FILTRO DE IDIOMA ---
             try:
-                results = d.search(
-                    style=estilo,
-                    country=PAIS,
-                    year=str(año),
-                    type='release',
-                    per_page=per_page,
-                    page=page
-                )
+                idioma = detect(letra)
+            except:
+                idioma = 'desconocido'
 
-                # Intentamos obtener la página actual
-                # discogs_client carga los datos de forma perezosa (lazy)
-                pag_releases = results.page(page)
-                
-                if not pag_releases:
-                    success = True
-                    break
+            if idioma != 'es':
+                print(f"  🚫 DESCARTADA (Idioma '{idioma}'): '{t}'")
+                return 
+            # --- FIN DEL FILTRO DE IDIOMA ---
 
-                print(f"      Página {page}: {len(pag_releases)} resultados")
+            buffer_datos.append({'artist': artista_limpio, 'album': album_nombre, 'year': año_release, 'song': t, 'lyrics': letra})
+            print(f"  ✅ ¡GUARDADA!: '{t}'")
+        elif letra:
+            print(f"  ❌ LETRA MUY CORTA: '{t}'")
+        else:
+            print(f"  ❌ NO ENCONTRADA: '{t}'")
 
-                for release in pag_releases:
-                    raw = release.data if hasattr(release, 'data') else {}
-                    artists_list = raw.get('artists', [])
-                    artist_name = artists_list[0].get('name', 'Unknown') if artists_list else 'Unknown'
-                    
-                    releases.append({
-                        'style': estilo,
-                        'year': raw.get('year', año),
-                        'artist': artist_name,
-                        'title': raw.get('title', ''),
-                        'discogs_id': raw.get('id', '')
-                    })
+async def obtener_albumes_discogs(session, estilo, año):
+    url = "https://api.discogs.com/database/search"
+    params = {
+        'style': estilo,
+        'year': año,
+        'type': 'release',
+        'country': 'Mexico',
+        'token': DISCOGS_TOKEN,
+        'per_page': 100
+    }
+    try:
+        async with session.get(url, params=params, timeout=15) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                res = data.get('results', [])
+                print(f"\n{'='*50}\n-> [Discogs] Encontrados: {len(res)} álbumes de {estilo} ({año}) en MÉXICO\n{'='*50}")
+                return res
+            elif resp.status == 429:
+                print("\n-> ⏳ Límite de Discogs alcanzado, esperando 30 segundos...")
+                await asyncio.sleep(30)
+    except Exception as e:
+        print(f"\n-> ❌ Error de conexión: {str(e)[:50]}")
+    return []
 
-                success = True
-                break 
+async def procesar_release(session, release, buffer_datos):
+    try:
+        partes = release['title'].split(' - ')
+        artista_limpio = re.sub(r'\*|\(\d+\)', '', partes[0]).strip()
+        album_nombre = partes[1] if len(partes) > 1 else "Single/Album"
+        año_release = release.get('year', 'Desconocido')
 
-            except HTTPError as e:
-                # Si el error es 404, significa que pedimos una página que no existe
-                if e.status_code == 404:
-                    print(f"      ℹ️ Fin de resultados (Página {page} no existe).")
-                    return releases # Salimos de la función con lo que tengamos
-                
-                # Manejo de límite de peticiones (429)
-                if e.status_code == 429:
-                    wait = (2 ** retries) * 5 + random.uniform(0, 1)
-                    print(f"      ⚠️ 429 Rate Limit. Esperando {wait:.1f}s...")
-                    time.sleep(wait)
-                else:
-                    print(f"      ⚠️ HTTPError {e.status_code}: {e}")
-                    time.sleep(10)
-                retries += 1
-            
-            except Exception as e:
-                print(f"      ⚠️ Error inesperado: {e}")
-                time.sleep(5)
-                retries += 1
+        url_detalles = f"https://api.discogs.com/releases/{release['id']}"
+        headers = {'Authorization': f'Discogs token={DISCOGS_TOKEN}'}
 
-        # Si la página tiene menos de 100 resultados, es la última
-        if not pag_releases or len(pag_releases) < per_page:
-            break
+        async with session.get(url_detalles, headers=headers, timeout=12) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                tracks = [t['title'] for t in data.get('tracklist', []) if t.get('title')]
+                print(f"\n🎵 Analizando Álbum: '{album_nombre}' de {artista_limpio} ({len(tracks)} canciones)")
 
-        page += 1
-        time.sleep(3 + random.uniform(0, 1))
+                if tracks:
+                    tareas = [procesar_cancion(session, artista_limpio, album_nombre, año_release, t, buffer_datos) for t in tracks]
+                    await asyncio.gather(*tareas)
 
-    return releases
-# ---------- EJECUCIÓN CON GUARDADO PARCIAL ----------
-# ---------- EJECUCIÓN CON GUARDADO PARCIAL (RESPETANDO ESTILOS) ----------
+            elif resp.status == 429:
+                print("  -> ⏳ Límite de la API alcanzado al ver álbum, esperando 30s...")
+                await asyncio.sleep(30)
+    except Exception as e:
+        print(f"  -> ❌ Error procesando el álbum: {str(e)[:50]}")
+
+# ==========================================
+# 3. MAIN
+# ==========================================
+
+async def main():
+    buffer_datos = []
+    
+    os.makedirs(os.path.dirname(ARCHIVO_SALIDA), exist_ok=True)
+
+    if os.path.exists(ARCHIVO_SALIDA):
+        try:
+            df_old = pd.read_csv(ARCHIVO_SALIDA)
+            print(f"♻️ Memoria: Tienes {len(df_old)} canciones ya guardadas.\n")
+        except:
+            pass
+
+    async with aiohttp.ClientSession() as session:
+        todos_los_años = list(range(1970, 2027))
+        random.shuffle(todos_los_años)
+
+        for año in todos_los_años:
+            for estilo in ESTILOS_OBJETIVO:
+                releases = await obtener_albumes_discogs(session, estilo, año)
+
+                for rel in releases:
+                    await procesar_release(session, rel, buffer_datos)
+                    await asyncio.sleep(0.8)
+
+                    if len(buffer_datos) >= TAMANO_BUFFER:
+                        guardar_en_disco(buffer_datos)
+
+        guardar_en_disco(buffer_datos)
+
 if __name__ == "__main__":
-    todos = []
-    progreso_estilo_año = set()   # guarda pares (estilo, año) ya procesados
-
-    if os.path.exists(ARCHIVO_PARCIAL):
-        df_parcial = pd.read_csv(ARCHIVO_PARCIAL)
-        todos = df_parcial.to_dict('records')
-        # Extraemos las combinaciones únicas de estilo y año
-        for _, row in df_parcial.iterrows():
-            progreso_estilo_año.add((row['style'], row['year']))
-        print(f"📂 Cargado progreso: {len(df_parcial)} releases "
-              f"de {len(progreso_estilo_año)} combinaciones estilo-año.")
-    else:
-        todos = []
-
-    for estilo in ESTILOS:
-        for año in AÑOS:
-            # Saltamos SOLO si ya procesamos ese estilo+año
-            if (estilo, año) in progreso_estilo_año:
-                print(f"\n⏩ Saltando {estilo} – {año} (ya procesado)")
-                continue
-
-            print(f"\n🔍 Buscando: {estilo} – {año}")
-            datos = extraer_releases_año(estilo, año)
-            print(f"   Total encontrado: {len(datos)}")
-            todos.extend(datos)
-
-            # Guardar progreso tras cada año
-            pd.DataFrame(todos).to_csv(ARCHIVO_PARCIAL, index=False, encoding='utf-8-sig')
-
-            # Pausa entre años (5‑6 segundos)
-            time.sleep(5 + random.uniform(0, 2))
-
-    # Resultado final
-    df_final = pd.DataFrame(todos).drop_duplicates(subset='discogs_id')
-    df_final.to_csv(ARCHIVO_SALIDA, index=False, encoding='utf-8-sig')
-    print(f"\n✅ Archivo final guardado: {ARCHIVO_SALIDA}")
-    print(f"   Total releases únicos: {len(df_final)}")
+    try:
+        # Ejecución normal en terminal (VS Code)
+        asyncio.run(main())
+    except RuntimeError:
+        # Ejecución en Google Colab (Evita el error de 'event loop is already running')
+        import nest_asyncio
+        nest_asyncio.apply()
+        asyncio.run(main())
