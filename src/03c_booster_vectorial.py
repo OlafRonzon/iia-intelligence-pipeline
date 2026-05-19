@@ -28,12 +28,11 @@ def generar_boosters_vectoriales(n_versos=100):
     # 2. Vectorizar la piscina (Esto puede tomar un minuto)
     print("🧠 Calculando vectores de toda la piscina (esto es bleeding edge)...")
     embeddings_piscina = model.encode(df_piscina['verso_texto'].tolist(), show_progress_bar=True)
-    
     for dimension, palabras in DICCIONARIO_PENTADIMENSIONAL.items():
-        # Blindaje: No repetir si ya existe el booster (Regex o Vectorial)
-        if list(DIR_VALIDATION.glob(f"*booster*{dimension}*")):
-            print(f"⏭️ Booster para {dimension} ya existe. Saltando...")
-            continue
+    # Blindaje corregido: Ahora solo salta si ya existe el booster VECTORIAL específico
+        if list(DIR_VALIDATION.glob(f"*booster_{dimension}_vector*")):
+            print(f"⏭️ Booster Vectorial para {dimension} ya existe. Saltando...")
+        continue
             
         print(f"🎯 Minando semánticamente la dimensión: {dimension}...")
         
