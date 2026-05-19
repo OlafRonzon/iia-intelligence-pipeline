@@ -1,0 +1,69 @@
+import pandas as pd
+import sys
+from pathlib import Path
+
+# ==========================================
+# 1. CARGA DE CONFIGURACIÓN MODULAR
+# ==========================================
+directorio_actual = Path(__file__).resolve().parent
+if str(directorio_actual) not in sys.path:
+    sys.path.append(str(directorio_actual))
+
+try:
+    from config import (
+        PATH_ETIQUETAS_PROVISIONALES, 
+        DICCIONARIO_PENTADIMENSIONAL, 
+        DIR_VALIDATION
+    )
+    PALABRAS_DI = DICCIONARIO_PENTADIMENSIONAL["DI"]
+    PATH_BOOSTER_DI = DIR_VALIDATION / "5_booster_dinero_extra.csv"
+    print("✅ Configuración vinculada. Buscando señales de agenciamiento económico...")
+except ImportError:
+    print("❌ Error: Asegúrate de que config.py esté en la misma carpeta.")
+    sys.exit()
+
+def ejecutar_booster_di(n_objetivo=100):
+    # Cargar el corpus procesado por Snorkel (75k versos)
+    if not PATH_ETIQUETAS_PROVISIONALES.exists():
+        print("❌ No se encuentra el archivo de la Etapa 04.")
+        return
+
+    df = pd.read_csv(PATH_ETIQUETAS_PROVISIONALES)
+    
+    # FILTRADO QUIRÚRGICO
+    # Buscamos versos que contengan palabras de tu lista 'DI'
+    patron_di = '|'.join([rf"\b{p}\b" for p in PALABRAS_DI])
+    df_dinero = df[df['verso_texto'].str.contains(patron_di, case=False, na=False)].copy()
+    
+    # Eliminamos duplicados de texto para no trabajar doble
+    df_dinero = df_dinero.drop_duplicates(subset=['verso_texto'])
+    
+    # Tomamos una muestra aleatoria para no sesgar por artista
+    n_final = min(len(df_dinero), n_objetivo)
+    muestra_booster = df_dinero.sample(n=n_final, random_state=42)
+    
+    # PREPARACIÓN PARA VALIDACIÓN MANUAL
+    columnas_trabajo = ['artist', 'song', 'verso_texto']
+    componentes = ["AR", "MO", "DI", "PO", "NA", "GO"]
+    
+    for c in componentes:
+        muestra_booster[f"val_{c}"] = ""  # Espacio para tu 0-3
+        # Dejamos la predicción de la IA como referencia sutil
+        if f"pred_{c}" in muestra_booster.columns:
+            muestra_booster[f"ia_{c}"] = muestra_booster[f"pred_{c}"]
+
+    # EXPORTAR
+    columnas_finales = columnas_trabajo + [f"val_{c}" for c in componentes]
+    muestra_booster[columnas_finales].to_csv(PATH_BOOSTER_DI, index=False, encoding='utf-8-sig')
+
+    print("\n" + "═"*50)
+    print("💰 BOOSTER DE DINERO GENERADO")
+    print("═"*50)
+    print(f"Versos extraídos: {len(muestra_booster)}")
+    print(f"Ubicación: {PATH_BOOSTER_DI.name}")
+    print("-" * 50)
+    print("Instrucción: Valida estas filas y luego únelas a tu Gold Standard.")
+    print("═"*50)
+
+if __name__ == "__main__":
+    ejecutar_booster_di(150) # Extraemos 150 para que tengas de dónde elegir

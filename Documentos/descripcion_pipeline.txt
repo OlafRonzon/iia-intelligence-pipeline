@@ -1,0 +1,70 @@
+ETAPA 03: Atomización y Scoring Pentadimensional (Caja Blanca)
+El concepto: Romper la canción para encontrar la "célula" del agenciamiento.
+
+Descripción: El código tomará las 5,000 canciones y las dividirá en unidades atómicas (versos). Simultáneamente, tu SET_NARCO_FUERTE se transformará en un Diccionario Estructurado donde cada palabra pertenece a uno de tus 5 componentes (AR, MO, DI, PO, NA).
+
+Lo que produce: Un dataset de versos (estimamos ~75,000 filas). Cada fila tendrá 5 columnas con un "score bruto" basado en la densidad de palabras clave encontradas por componente.
+
+Conexión: Este paso actúa como un primer colador semántico. Permite descartar versos "vacíos" (que no tienen ninguna palabra de interés) y priorizar los versos "densos" para la siguiente etapa, reduciendo el ruido de procesamiento.
+
+ETAPA 04: Supervisión Débil y Snorkel (Caja Gris)
+El concepto: Generar etiquetas provisionales mediante lógica humana programada.
+
+Descripción: Utilizaremos una técnica de Supervisión Débil. En lugar de etiquetar tú, programaremos "Reglas de Experto" (Heurísticas). Ejemplo: "Si un verso tiene una palabra de AR y una de PO, es probable que la intensidad sea Alta". Un modelo probabilístico (como Snorkel) analizará estas reglas y resolverá conflictos cuando las reglas se contradigan.
+
+Lo que produce: El dataset de versos enriquecido con etiquetas probables y niveles de confianza para cada uno de los 5 componentes del IIA.
+
+Conexión: Esta etapa es fundamental para el Aprendizaje Activo. Nos dice en qué versos la IA está "segura" y en cuáles tiene una "duda razonable". Estos últimos serán los que tú validarás.
+
+ETAPA 05: Active Learning y Validación del "Gold Standard" (Humano)
+El concepto: El juicio experto aplicado a la máxima incertidumbre.
+
+Descripción: Aquí entra tu Muestra Súper Concentrada. El sistema te presentará los versos donde la etapa anterior falló o tuvo dudas (cerca de la frontera de decisión). Tú validarás manualmente una muestra (ej. 800-1,000 versos) calificando del 0 al 3 cada uno de los 5 componentes según tu criterio teórico.
+
+Lo que produce: El Gold Standard (Verdad de Referencia). Es una base de datos pequeña pero perfecta, que representa fielmente tu interpretación sociológica del agenciamiento.
+
+Conexión: Este es el combustible para el entrenamiento final. Sin esta etapa, la IA sería una "caja negra" sin rumbo; con esto, la IA se convierte en una extensión de tu propio criterio.
+
+ETAPA 06: Entrenamiento Multi-Tarea (Caja Negra)
+El concepto: Enseñar a la IA a pensar en 5 dimensiones simultáneamente.
+
+Descripción: Entrenaremos un modelo de lenguaje profundo (tipo Transformer/BERT) con una arquitectura Multi-Head. Esto significa que el modelo no aprende a decir "esto es narco", sino que aprende a predecir cinco valores a la vez (intensidad de AR, MO, DI, PO y NA).
+
+Lo que produce: Un Modelo Clasificador Pentadimensional entrenado y graduado bajo tu supervisión.
+
+Conexión: Este modelo ahora es un "experto virtual" que puede procesar cualquier volumen de datos manteniendo la coherencia de tus 6 componentes clave.
+
+ETAPA 07: Inferencia Masiva e Índice IIA Global (Producto Final)
+El concepto: Escalar el rigor a todo el universo de datos.
+
+Descripción: El modelo de la Etapa 06 procesa los 75,000 versos del corpus filtrado y las decenas de miles del corpus original si se desea. Se calculan los promedios ponderados de los versos para devolverle a cada canción una puntuación final: el Índice de Intensidad del Agenciamiento (IIA).
+
+Lo que produce: Una base de datos final donde cada canción tiene un Perfil de Agenciamiento (ej. AR: 2.5, PO: 1.0, etc.) y un valor de IIA global.
+
+Conexión: Este es el producto final para tu investigación. Permite realizar análisis sociológicos: ¿Cómo ha mutado el componente PO frente al AR en los últimos 20 años?
+
+ETAPA 08: Auditoría de Explicabilidad (Caja de Cristal)
+El concepto: Verificación científica y transparencia.
+
+Descripción: Aplicaremos técnicas de XAI (IA Explicable). Tomaremos muestras aleatorias de las predicciones finales y generaremos mapas de calor. El sistema subrayará las palabras exactas que lo llevaron a decidir que un verso tenía alta intensidad en un componente.
+
+Lo que produce: Reportes de fiabilidad y visualizaciones de "atención léxica".
+
+Conexión: Sirve para la validación externa de tu tesis o artículo. Demuestra que tu modelo no es una "caja negra", sino un sistema auditable que entiende la semántica del agenciamiento.
+
+Resumen de Coherencia y Flujo
+Limpieza Previa (Tu estado actual): Quita el 60% de la paja del corpus de 12k.
+
+Atomización (Etapa 3): Enfoca la lente en el verso, no en la canción.
+
+Supervisión Débil (Etapa 4): Organiza el caos de los 75k versos en grupos de probabilidad.
+
+Validación Humana (Etapa 5): Tú solo trabajas en el 1% de los datos (los más difíciles), pero esos definen el 100% de la calidad.
+
+Entrenamiento e Inferencia (Etapas 6 y 7): La IA replica tu juicio a gran escala.
+
+Auditoría (Etapa 8): Verificas que la IA aprendió lo que tú querías y no "sesgos" accidentales.
+
+
+artist	song	verso_texto	val_AR	val_MO	val_DI	val_PO	val_NA	val_GO
+artist	song	year	verso_texto	val_AR	val_MO	val_DI	val_PO	val_NA	val_GO	ia_AR	ia_MO	ia_DI	ia_PO	ia_NA
