@@ -30,23 +30,26 @@ PATH_AUDITORIA_CONTEXTOS = INT_DIR / "2_auditoria_contextos.csv"
 # Salidas del Clustering (Script 03)
 PATH_CORPUS_AGRUPADO = INT_DIR / "2_corpus_agrupado_ia.csv"
 PATH_CORPUS_FILTRADO_CLUSTERS = INT_DIR / "3_corpus_pre_muestreo.csv"
+PATH_VERSOS_ATOMIZADOS = DIR_INTERMEDIATE / "3_versos_scoring_bruto.csv"
 
 # Salidas de Validación (Script 04 y 05)
 PATH_MUESTRA_CONTROL = DIR_VALIDATION / "muestra_control.csv"
 PATH_FILTRO_FINAL = DIR_PROCESSED / "10k_filtrado_semantico.csv"
-
-#salida de 03 
-# Nueva ruta de salida para los versos
-PATH_VERSOS_ATOMIZADOS = DIR_INTERMEDIATE / "3_versos_scoring_bruto.csv"
-
-#salida de 04 
 PATH_ETIQUETAS_PROVISIONALES = DIR_INTERMEDIATE / "4_versos_etiquetados_snorkel.csv"
 
-#paths etapa 05
-# Dentro de config.py
+# Paths etapa 05
 PATH_TAREAS_VALIDACION = DIR_VALIDATION / "5_tareas_pendientes_gs.csv"
 PATH_GOLD_STANDARD = DIR_VALIDATION / "5_gold_standard_final.csv"
- #==========================================
+
+# ------------------------------------------
+# NUEVAS RUTAS: FASE 1 Y 2 (SÍNTESIS V2 Y VISUALIZACIÓN)
+# ------------------------------------------
+PATH_GOLD_STANDARD_VECTORS = DIR_INTERMEDIATE / "gold_standard_vectors.npy"
+PATH_GOLD_STANDARD_LABELS = DIR_INTERMEDIATE / "gold_standard_labels.npy"
+PATH_STATS = DIR_INTERMEDIATE / "stats_sankey.json"
+PATH_HTML = DIR_INTERMEDIATE / "sankey_crisol.html"
+
+# ==========================================
 # 2. PARÁMETROS DEL PIPELINE
 # ==========================================
 # Control de Calidad y Muestreo
@@ -58,219 +61,16 @@ TOP_CANCIONES_POR_DECADA = 50   # Límite de ranking por década para el script 
 # Filtros Semánticos
 UMBRAL_RECHAZO_SEMANTICO = 0.5  # Sensibilidad de la similitud de coseno
 NUM_CLUSTERS = 15               # Grupos para K-Means
+
 # ==========================================
 # 3. DICCIONARIOS Y LÉXICOS
 # ==========================================
-PALABRAS_IRRELEVANTES = [ "que", "de", "y", "la", "no", "a", "me", "el", "te", "en", "mi", "se", "yo", "por", "lo", "un", "es", "con", "si", "ya", "los", "las", "para", "al", "como", "pero", "una", "le", "que",
-"de",
-"y",
-"la",
-"no",
-"a",
-"me",
-"el",
-"te",
-"en",
-"mi",
-"se",
-"yo",
-"por",
-"lo",
-"un",
-"es",
-"tu",
-"con",
-"si",
-"ya",
-"los",
-
-"las",
-"para",
-"al",
-"como",
-"pero",
-"una",
-"le",
-"su",
-"tú",
-"porque",
-"cuando",
-"del",
-"más",
-"sin",
-"voy",
-"ti",
-"soy",
-"pa",
-"muy",
-"qué",
-"mis",
-"ni",
-"solo",
-"ay",
-"hay",
-"bien",
-"esta",
-"mí",
-"tus",
-"eso",
-"así",
-"he",
-"nos",
-"vez",
-"este",
-"tan",
-
-"fue",
-"o",
-"eres",
-"va",
-"hasta",
-"día",
-"aquí",
-"sé",
-"ha",
-"donde",
-"mas",
-"les",
-"aunque",
-"vas",
-"hoy",
-
-
-
-
-"dos",
-
-"sus",
-
-
-
-
-
-
-
-"está",
-
-
-"también",
-"pues",
-
-"oh",
-
-"ese",
-
-"cómo",
-"ahí",
-
-
-
-"mejor",
-
-
-
-
-
-
-"hace",
-
-
-"dicen",
-
-
-
-"lado",
-
-
-
-
-
-"desde",
-"has",
-
-"hacer",
-"sí",
-"cada",
-
-
-
-"van",
-
-
-
-"estás",
-"the",
-"adiós",
-
-
-
-
-"sabes",
-"han",
-"puede",
-
-
-
-
-"you",
-"dijo",
-"ando",
-
-
-
-"allá",
-
-
-"digo",
-"paso",
-"importa",
-"quién",
-"vamos",
-"tal",
-"i",
-"quien",
-"entre",
-
-
-
-
-
-
-
-
-"ah",
-
-
-
-
-"mira",
-"estar",
-
-"esto",
-
-
-
-"eh",
-
-"dice",
-"da",
-
-
-
-
-"sea",
-
-"mano",
-
-"ja",
-
-
-
-
-"di",
-
-"tres"
-    # Ejemplos: "que", "de", "y", "a", "la", "el", "en"
+PALABRAS_IRRELEVANTES = [ 
+    "que", "de", "y", "la", "no", "a", "me", "el", "te", "en", "mi", "se", "yo", "por", "lo", "un", "es", "con", "si", "ya", "los", "las", "para", "al", "como", "pero", "una", "le",
+    "tu", "su", "tú", "porque", "cuando", "del", "más", "sin", "voy", "ti", "soy", "pa", "muy", "qué", "mis", "ni", "solo", "ay", "hay", "bien", "esta", "mí", "tus", "eso", "así", 
+    "he", "nos", "vez", "este", "tan", "fue", "o", "eres", "va", "hasta", "día", "aquí", "sé", "ha", "donde", "mas", "les", "aunque", "vas", "hoy", "dos", "sus", "está", "también", 
+    "pues", "oh", "ese", "cómo", "ahí", "mejor", "hace", "dicen", "lado", "desde", "has", "hacer", "sí", "cada", "van", "estás", "the", "adiós", "sabes", "han", "puede", "you", 
+    "dijo", "ando", "allá", "digo", "paso", "importa", "quién", "vamos", "tal", "i", "quien", "entre", "ah", "mira", "estar", "esto", "eh", "dice", "da", "sea", "mano", "ja", "di", "tres"
 ]
 
 SET_NARCO_FUERTE = {
@@ -279,21 +79,15 @@ SET_NARCO_FUERTE = {
     # Drogas
     "cocaína", "perico", "mota", "cristal", "fentanilo", "polvo", "hierba", "gallo","blunt", "carga",
     # Movilidad
-    "troca", "blindada", "camioneta", "avioneta", "suburban","calle", "caballo", "mercancia", "mercancía", "policía",
-    "barrio", "sierra", "tierra",
+    "troca", "blindada", "camioneta", "avioneta", "suburban","calle", "caballo", "mercancia", "mercancía", "policía", "barrio", "sierra", "tierra",
     # Jerarquía / Organización
-    "cártel", "patrón", "jefe", "sicario", "teniente", "comandante",
-    "plaza", "nómina", "halcón", "puntero","hombres", "nivel", "grandeza", "dolar", "millones","ley", "defender", "conectas", "chapo", "chapiza", "distribuir", "distribuirla", "gatilleros",
-    "compa", "banda", "real",
+    "cártel", "patrón", "jefe", "sicario", "teniente", "comandante", "plaza", "nómina", "halcón", "puntero","hombres", "nivel", "grandeza", "dolar", "millones","ley", "defender", "conectas", "chapo", "chapiza", "distribuir", "distribuirla", "gatilleros", "compa", "banda", "real",
     # Ostentación / Violencia
-    "belicón", "bélico", "alterado", "encapuchado", "ejecutado",
-    "levantón", "encajuelado", "descuartizar", "sanguinario",
-    "gente", "dinero", "muerte", "mujeres","cuatro", "tiros", "muerto",
-    "balazos", "frente", 
-    "miedo", "carro", "mal", "matar", "waxito", "galliza", "wax", "contrabando", "dólares", "dolares", "tira", "judiciales", "federales", "traficantes",
+    "belicón", "bélico", "alterado", "encapuchado", "ejecutado", "levantón", "encajuelado", "descuartizar", "sanguinario", "gente", "dinero", "muerte", "mujeres","cuatro", "tiros", "muerto", "balazos", "frente", "miedo", "carro", "mal", "matar", "waxito", "galliza", "wax", "contrabando", "dólares", "dolares", "tira", "judiciales", "federales", "traficantes",
     # Cultura
     "corrido", "chota","valientes", "malos", "perdió", "perdio", "gobierno", "azteca", "billetes", "diablo" 
 }
+
 DICCIONARIO_PENTADIMENSIONAL = {
     "AR": [ # Armas y Violencia
         "cuerno", "ak-47", "r15", "fusil", "pistola", "granada", "blindaje", "muerto", "encapuchado", "cuatro", "defender", "malos", "tirar", "traficantes",
@@ -303,7 +97,7 @@ DICCIONARIO_PENTADIMENSIONAL = {
     "MO": [ # Movilidad y Blindaje
         "troca", "blindada", "camioneta", "avioneta", "suburban", "carro", "mercancia", "mercancía", "producto", "kilos", "carga", "kilo",
         "camino", "sierra", "frontera", "ruta", "flete", "avioneta", "tunel", "tuneles", "caballo", "contrabando"
-    ], #se eligieron palabras relacionados con logística, transporte y producto
+    ], 
     "DI": [ # Ostentación y Dinero
         "dinero", "dólares", "dolares", "billetes", "pacas", "lujos", "marcas",
         "millones", "riqueza", "joyas", "diamantes", "oro", "mujeres"
@@ -317,5 +111,6 @@ DICCIONARIO_PENTADIMENSIONAL = {
         "carga", "mercancía", "kilo", "cocina", "clavo" , "waxito", "galliza", "wax", "coca", "meta", "marihuana", "mariguana", "mariguana", "mariguana", "marijuana", "mariguana"
     ],
     "GO": [ # Gobierno y Legalidad 
-        "chota", "gobierno", "americano", "federales", "judiciales", "tira", "policía", "ley", "puercos"]
+        "chota", "gobierno", "americano", "federales", "judiciales", "tira", "policía", "ley", "puercos"
+    ]
 }

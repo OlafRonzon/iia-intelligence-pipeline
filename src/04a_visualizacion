@@ -1,0 +1,88 @@
+import plotly.graph_objects as go
+import json
+import sys
+import os
+from pathlib import Path
+
+# Configuración de rutas
+try:
+    dir_src = Path(__file__).resolve().parent
+except NameError:
+    dir_src = Path(os.getcwd()) / "src"
+
+try:
+    from config import DIR_INTERMEDIATE
+    PATH_STATS = DIR_INTERMEDIATE / "stats_sankey.json"
+    PATH_HTML = DIR_INTERMEDIATE / "sankey_crisol.html"
+except ImportError as e:
+    print(f"❌ Error importando config: {e}")
+    sys.exit(1)
+
+def generar_sankey():
+    if not PATH_STATS.exists():
+        print(f"❌ No se encontró el archivo de estadísticas: {PATH_STATS}")
+        print("Debes ejecutar el módulo 04 primero.")
+        sys.exit(1)
+        
+    with open(PATH_STATS, 'r') as f:
+        stats = json.load(f)
+        
+    print("🎨 Generando el Crisol (Sankey Diagram)...")
+    
+    # Nodos: 
+    # 0: Regex, 1: K-Means, 2: Filtro Deduplicación, 3: SMOTE (Motor Sintético), 4: Gold Standard
+    labels = [
+        "Fase Regex (Reglas Duras)", 
+        "Fase K-Means (Motor Vectorial)", 
+        "Deduplicación (Clímax)", 
+        "Motor Anti-Teleología (SMOTE)", 
+        "Gold Standard (Balanceado)"
+    ]
+    
+    # Índices de los nodos de origen y destino
+    source = [0, 1, 2, 3, 2]
+    target = [2, 2, 3, 4, 4]
+    
+    # Valores del flujo
+    value = [
+        stats["regex_in"],                           # Regex -> Deduplicación
+        stats["kmeans_in"],                          # K-Means -> Deduplicación
+        stats["sinteticos_creados"],                 # Deduplicación manda petición al Motor SMOTE
+        stats["sinteticos_creados"],                 # SMOTE entrega vectores sintéticos al final
+        stats["deduplicado"]                         # Deduplicación manda vectores reales al final
+    ]
+    
+    # Colores vanguardistas (Bleeding Edge Aesthetic)
+    color_nodos = ["#1f77b4", "#9467bd", "#ff7f0e", "#d62728", "#2ca02c"]
+    color_links = ["rgba(31, 119, 180, 0.4)", "rgba(148, 103, 189, 0.4)", 
+                   "rgba(214, 39, 40, 0.3)", "rgba(214, 39, 40, 0.5)", 
+                   "rgba(255, 127, 14, 0.4)"]
+
+    fig = go.Figure(data=[go.Sankey(
+        node = dict(
+            pad = 20,
+            thickness = 30,
+            line = dict(color = "black", width = 0.5),
+            label = labels,
+            color = color_nodos
+        ),
+        link = dict(
+            source = source,
+            target = target,
+            value = value,
+            color = color_links
+        )
+    )])
+
+    fig.update_layout(
+        title_text="Síntesis del Gold Standard: Flujo de Resolución y Balanceo Sintético",
+        font_size=14,
+        plot_bgcolor='black',
+        paper_bgcolor='white'
+    )
+    
+    fig.write_html(str(PATH_HTML))
+    print(f"✅ Visualización generada exitosamente. Abre este archivo en tu navegador: {PATH_HTML}")
+    
+if __name__ == "__main__":
+    generar_sankey()
