@@ -52,61 +52,65 @@ print(f"🖥️ Hardware de síntesis detectado: {DEVICE.upper()}")
 
 def extraer_intensidades_ground_truth():
     """
-    MODO AUDITORÍA: Esta función escanea los archivos de validación 
-    e imprime detalladamente qué columnas y datos encuentra.
+    Extrae intensidades aprovechando la validación cruzada (multi-etiqueta).
+    Cualquier verso validado en cualquier archivo alimentará su dimensión correspondiente.
     """
-    print("🔍 [MODO AUDITORÍA] Mapeando intensidades validadas...")
-    print(f"📂 Buscando en la carpeta: {DIR_VALIDATION}")
+    print("🔍 [Fase 1] Mapeando intensidades validadas cruzadas (Omnidireccional)...")
     
     anclas_por_dimension = {}
-    versos_cuarentena = set()
     
-    for dimension in DICCIONARIO_PENTADIMENSIONAL.keys():
-        archivo_regex = DIR_VALIDATION / f"5_booster_{dimension}.csv"
-        print(f"\n--- Auditando dimensión: {dimension} ---")
-        print(f"Buscando archivo exacto: {archivo_regex.name}")
+    # 1. Leer todos los archivos de validación disponibles y unirlos
+    dfs_validados = []
+    archivos_csv = list(DIR_VALIDATION.glob("5_booster_*.csv"))
+    
+    if not archivos_csv:
+        print("   ⚠️ No se encontraron archivos de validación en la carpeta.")
+        return {}, set()
         
-        if not archivo_regex.exists():
-            print(f" ❌ FALLO: El archivo NO existe en la ruta {archivo_regex}")
-            continue
-            
+    for archivo in archivos_csv:
         try:
-            # Forzamos la lectura asumiendo que es un CSV separado por comas
-            df = pd.read_csv(archivo_regex)
-            print(f" ✅ Archivo encontrado. Columnas detectadas: {list(df.columns)}")
-            
-            col_val = f"val_{dimension}"
-            
-            # Verificación estricta de columnas
-            if 'verso_texto' not in df.columns:
-                print(f" ❌ FALLO: No se encontró la columna exacta 'verso_texto'.")
-                continue
-                
-            if col_val not in df.columns:
-                print(f" ❌ FALLO: No se encontró la columna exacta '{col_val}'.")
-                continue
-                
-            # Convertimos a número y contamos para ver si los datos son válidos
-            df[col_val] = pd.to_numeric(df[col_val], errors='coerce').fillna(0)
-            df_activo = df[df[col_val] > 0]
-            
-            print(f" 📊 Filas totales leídas: {len(df)}")
-            print(f" 📊 Filas con intensidad validada (> 0): {len(df_activo)}")
-            
-            textos = df_activo['verso_texto'].tolist()
-            pesos = df_activo[col_val].tolist()
-            
-            if textos:
-                anclas_por_dimension[dimension] = (textos, pesos)
-                print(f" 🟢 ÉXITO: {len(textos)} vectores rescatados para {dimension}.")
-            else:
-                print(" 🟡 ADVERTENCIA: Columnas correctas, pero NO hay ninguna fila con valor validado mayor a 0.")
-                
-            versos_cuarentena.update(df['verso_texto'].dropna().tolist())
-            
+            df = pd.read_csv(archivo)
+            dfs_validados.append(df)
         except Exception as e:
-            print(f" ❌ ERROR CRÍTICO al intentar leer el archivo con Pandas: {e}")
+            print(f"   ❌ Error al leer {archivo.name}: {e}")
             
+    # Unimos todos los CSV en una sola tabla maestra
+    df_maestro = pd.concat(dfs_validados, ignore_index=True)
+    
+    # Asegurarnos de que las columnas val_ existan y sean numéricas
+    columnas_val = [f"val_{dim}" for dim in DICCIONARIO_PENTADIMENSIONAL.keys()]
+    for col in columnas_val:
+        if col in df_maestro.columns:
+            df_maestro[col] = pd.to_numeric(df_maestro[col], errors='coerce').fillna(0)
+        else:
+            df_maestro[col] = 0 # Si la columna no existía en ningún CSV, la creamos en ceros
+            
+    # 2. Agrupar por verso para colapsar duplicados (tomando la intensidad máxima)
+    if 'verso_texto' not in df_maestro.columns:
+        print("   ❌ Error crítico: Ningún archivo tiene la columna 'verso_texto'.")
+        return {}, set()
+        
+    df_maestro = df_maestro.dropna(subset=['verso_texto'])
+    # Si un verso aparece en 2 archivos, conservamos el valor más alto que se le haya dado
+    df_maestro = df_maestro.groupby('verso_texto', as_index=False)[columnas_val].max()
+    
+    # 3. Extraer los vectores por dimensión transversalmente
+    for dimension in DICCIONARIO_PENTADIMENSIONAL.keys():
+        col_val = f"val_{dimension}"
+        
+        # Filtramos solo los versos que tienen un peso mayor a 0 para esta dimensión específica
+        df_activo = df_maestro[df_maestro[col_val] > 0]
+        
+        textos = df_activo['verso_texto'].tolist()
+        pesos = df_activo[col_val].tolist()
+        
+        if textos:
+            anclas_por_dimension[dimension] = (textos, pesos)
+            print(f"   ✅ {dimension}: Cartografiados {len(textos)} vectores (aprovechando validación cruzada).")
+            
+    # La cuarentena (versos que ya no queremos en la piscina) son todos los del df_maestro
+    versos_cuarentena = set(df_maestro['verso_texto'].tolist())
+    
     return anclas_por_dimension, versos_cuarentena
 
 def cargar_piscina(versos_cuarentena):
