@@ -78,7 +78,7 @@ def auditar_sesgo_temporal(df_umap):
     
     stat, p_value = stats.kruskal(*grupos_x)
     
-    print(f"   ► P-Value resultante: {p_value:.4f}")
+    print(f"   ► P-Value resultante: {p_value}")
     if p_value > 0.05:
         print("   ✅ ÉXITO CIENTÍFICO: No se rechaza H0. La distribución espacial de los versos ES INDEPENDIENTE de la década.")
         print("   (Se ha demostrado la ausencia de sesgo teleológico).")

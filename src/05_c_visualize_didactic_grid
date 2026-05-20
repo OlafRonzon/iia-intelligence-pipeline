@@ -1,0 +1,76 @@
+import pandas as pd
+import plotly.express as px
+import sys
+import os
+from pathlib import Path
+
+# ==========================================
+# 1. CONFIGURACIÓN DE RUTAS
+# ==========================================
+try:
+    dir_src = Path(__file__).resolve().parent
+except NameError:
+    dir_src = Path(os.getcwd()) / "src"
+
+try:
+    from config import DIR_INTERMEDIATE
+    PATH_UMAP_RESULTS = DIR_INTERMEDIATE / "umap_3d_results.csv"
+    PATH_HTML_DIDACTIC = DIR_INTERMEDIATE / "umap_cuadricula_didactica.html"
+except ImportError as e:
+    print(f"❌ Error importando config: {e}")
+    sys.exit(1)
+
+def generar_cuadricula_didactica():
+    if not PATH_UMAP_RESULTS.exists():
+        print(f"❌ No se encontró el archivo: {PATH_UMAP_RESULTS}")
+        sys.exit(1)
+        
+    print("🎨 Renderizando Cuadrícula Didáctica (Facet Grid 2D)...")
+    df = pd.read_csv(PATH_UMAP_RESULTS)
+    
+    # 1. Limpieza y preparación
+    df['year'] = pd.to_numeric(df['year'], errors='coerce').fillna(0).astype(int)
+    df = df[df['year'] > 1900]
+    # Forzar la década a texto para que Plotly la trate como una categoría estricta
+    df['decada_str'] = df['decada'].astype(int).astype(str) + "s"
+    # Ordenar para que las columnas aparezcan cronológicamente
+    df = df.sort_values(by=['dimension_dominante', 'decada'])
+
+    # Diccionario de colores
+    color_map = {
+        'AR': '#d62728', 'MO': '#1f77b4', 'DI': '#ff7f0e', 
+        'PO': '#9467bd', 'NA': '#2ca02c', 'GO': '#8c564b'
+    }
+
+    # 2. Generar el Facet Grid en 2D (Ignoramos el eje Z para máxima claridad)
+    fig = px.scatter(
+        df, 
+        x='umap_x', 
+        y='umap_y', 
+        color='dimension_dominante',
+        facet_col='decada_str',           # Las columnas serán las décadas
+        facet_row='dimension_dominante',  # Las filas serán las dimensiones
+        color_discrete_map=color_map,
+        opacity=0.7,
+        hover_data=['year', 'verso_texto']
+    )
+
+    # 3. Limpieza Estética (Quitar líneas de cuadrícula para ver solo la "mancha")
+    fig.update_layout(
+        title="Migración Topológica: Evolución 2D por Década y Dimensión",
+        paper_bgcolor='white',
+        plot_bgcolor='#f8f9fa',
+        font=dict(color='black'),
+        height=1000, # Gráfico alto para que quepan las 6 filas bien
+        showlegend=False # Ocultamos la leyenda porque las filas ya tienen nombre
+    )
+    
+    # Ocultar los ejes X e Y de cada cajita para que parezca un mapa limpio
+    fig.update_xaxes(showticklabels=False, title_text="")
+    fig.update_yaxes(showticklabels=False, title_text="")
+
+    fig.write_html(str(PATH_HTML_DIDACTIC))
+    print(f"✅ Cuadrícula didáctica generada. Abre este archivo: {PATH_HTML_DIDACTIC}")
+
+if __name__ == "__main__":
+    generar_cuadricula_didactica()
