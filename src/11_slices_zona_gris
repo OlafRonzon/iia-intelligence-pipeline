@@ -1,0 +1,66 @@
+import pandas as pd
+import numpy as np
+from pathlib import Path
+import sys
+import os
+
+# Configuración de rutas (Adaptado a tu arquitectura)
+try:
+    dir_src = Path(__file__).resolve().parent
+except NameError:
+    dir_src = Path(os.getcwd()) / "src"
+
+DIR_INTERMEDIATE = dir_src.parent / "data" / "02_intermediate"
+PATH_ZONA_GRIS = DIR_INTERMEDIATE / "07_corpus_10k_zona_gris_auditoria_8pct.csv"
+PATH_MUESTRA_SALIDA = DIR_INTERMEDIATE / "08_muestra_auditoria_manual.csv"
+
+def generar_muestra_estratificada():
+    print("🚀 Iniciando Fase A: Muestreo Estratificado de la Zona Gris (1% - 7%)")
+    
+    if not PATH_ZONA_GRIS.exists():
+        print(f"❌ Error: No se encuentra el archivo en {PATH_ZONA_GRIS}")
+        print("Asegúrate de que la ruta sea correcta.")
+        return
+        
+    df = pd.read_csv(PATH_ZONA_GRIS)
+    
+    # Asumimos que tienes una columna 'densidad_semantica' que va de 0 a 100 (o 0.0 a 1.0)
+    # Si está en decimales (ej. 0.05), la multiplicamos por 100 y la redondeamos.
+    if df['densidad_semantica'].max() <= 1.0:
+        df['densidad_porcentual'] = (df['densidad_semantica'] * 100).round().astype(int)
+    else:
+        df['densidad_porcentual'] = df['densidad_semantica'].round().astype(int)
+
+    muestras_por_porcentaje = []
+    
+    # Extraer 50 canciones por cada punto porcentual del 1% al 7%
+    for pct in range(1, 8):
+        df_pct = df[df['densidad_porcentual'] == pct]
+        
+        # Si hay menos de 50 canciones en ese porcentaje, tomamos las que haya
+        n_samples = min(50, len(df_pct)) 
+        
+        if n_samples > 0:
+            muestra = df_pct.sample(n=n_samples, random_state=42)
+            muestras_por_porcentaje.append(muestra)
+            print(f"📊 Porcentaje {pct}%: {n_samples} canciones extraídas.")
+        else:
+            print(f"⚠️ Porcentaje {pct}%: No hay canciones disponibles en este rango.")
+
+    df_final = pd.concat(muestras_por_porcentaje)
+    
+    # Agregamos las columnas vacías para tu trabajo hermenéutico
+    df_final['es_util_real'] = ""      # Aquí pondrás 1 (Útil/Metáfora) o 0 (Ruido)
+    df_final['verso_semilla'] = ""     # Aquí pegarás el verso exacto que detona el agenciamiento
+    df_final['notas_auditoria'] = ""   # Espacio para tus observaciones cualitativas
+    
+    # Ordenar por densidad para facilitar tu lectura
+    df_final = df_final.sort_values(by='densidad_porcentual')
+    
+    df_final.to_csv(PATH_MUESTRA_SALIDA, index=False)
+    print(f"\n✅ Muestra generada con éxito ({len(df_final)} canciones).")
+    print(f"📁 Archivo listo para tu auditoría en: {PATH_MUESTRA_SALIDA}")
+    print("✍️ Instrucción: Abre el CSV, lee las letras y llena las columnas 'es_util_real' y 'verso_semilla'.")
+
+if __name__ == "__main__":
+    generar_muestra_estratificada()
