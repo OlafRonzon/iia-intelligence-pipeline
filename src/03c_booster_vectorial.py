@@ -126,20 +126,37 @@ def cargar_piscina(versos_cuarentena):
     return df_filtrada
 
 def generar_embeddings_piscina(model, textos):
-    """Genera y guarda en caché los vectores de los versos usando el modelo Transformer."""
+    """
+    Genera y guarda en caché los vectores de los versos.
+    Incluye una validación de seguridad para evitar desfases de índices (Out of Bounds).
+    """
+    # 1. Comprobamos si el archivo de caché ya existe en el disco duro
     if PATH_CACHE.exists():
         print(f"⚡ [Fase 2] Recuperando topología semántica desde caché...")
-        return np.load(PATH_CACHE).astype('float32')
+        # Cargamos los datos del caché
+        embeddings_cacheados = np.load(PATH_CACHE).astype('float32')
         
-    print(f"🧠 [Fase 2] Sintetizando vectores masivos (Batching en {DEVICE.upper()})...")
+        # 2. REGLA DE SEGURIDAD: Validar que el tamaño coincida
+        if len(embeddings_cacheados) == len(textos):
+            print("   ✅ El caché coincide con los datos actuales. Usando caché seguro.")
+            return embeddings_cacheados
+        else:
+            # Si hay un desfase, alertamos y procedemos a recalcular
+            print(f"   ⚠️ Desfase de datos detectado: Caché tiene {len(embeddings_cacheados)} vectores, pero la tabla tiene {len(textos)} filas.")
+            print("   🔄 Regenerando vectores para sincronizar...")
+    else:
+        print(f"🧠 [Fase 2] Sintetizando vectores masivos (Batching en {DEVICE.upper()})...")
+        
+    # 3. Cálculo de nuevos vectores (si no hay caché o si hubo desfase)
     batch_size = 128 if DEVICE == 'cuda' else 32
-    
     embeddings = model.encode(textos, show_progress_bar=True, batch_size=batch_size, device=DEVICE, convert_to_numpy=True)
     embeddings = embeddings.astype('float32')
     
-    # Normalizamos para usar Similitud Coseno pura
+    # Normalizamos (requerido para similitud coseno) y sobrescribimos el caché viejo
     faiss.normalize_L2(embeddings)
     np.save(PATH_CACHE, embeddings)
+    
+    print("   ✅ Nuevo caché guardado exitosamente.")
     return embeddings
 
 def calcular_atractores_kmeans(model, textos_ancla, pesos):
