@@ -114,15 +114,40 @@ def extraer_intensidades_ground_truth():
     return anclas_por_dimension, versos_cuarentena
 
 def cargar_piscina(versos_cuarentena):
-    """Carga los versos que no han sido analizados aún."""
+    """
+    Carga los versos latentes y aplica una Ventana Deslizante de 3 líneas 
+    para darle más contexto al modelo Transformer.
+    """
     if not PATH_PISCINA.exists():
         print(f"❌ Ausencia de datos en: {PATH_PISCINA}")
         sys.exit(1)
         
     df_piscina = pd.read_csv(PATH_PISCINA)
-    # Filtramos los versos que ya pasaron por cuarentena
     df_filtrada = df_piscina[~df_piscina['verso_texto'].isin(versos_cuarentena)].reset_index(drop=True)
-    print(f"🌊 Deriva disponible: {len(df_filtrada)} versos en estado latente.")
+    
+    print("   [Procesamiento NLP] Expandiendo contexto léxico con Ventana Deslizante...")
+    
+    # 1. Asegurarnos de que los datos estén ordenados lógicamente
+    # Asumimos que tienes columnas como 'artist', 'song' y un orden natural de lectura
+    if 'song' in df_filtrada.columns:
+        # 2. Extraer el verso anterior y el siguiente, respetando los límites de cada canción
+        df_filtrada['verso_previo'] = df_filtrada.groupby(['artist', 'song'])['verso_texto'].shift(1).fillna("")
+        df_filtrada['verso_siguiente'] = df_filtrada.groupby(['artist', 'song'])['verso_texto'].shift(-1).fillna("")
+        
+        # 3. Crear el bloque de contexto (separado por espacios)
+        df_filtrada['contexto_ampliado'] = (
+            df_filtrada['verso_previo'] + " " + 
+            df_filtrada['verso_texto'] + " " + 
+            df_filtrada['verso_siguiente']
+        ).str.strip()
+        
+        # Opcional: limpiar espacios dobles que hayan quedado
+        df_filtrada['contexto_ampliado'] = df_filtrada['contexto_ampliado'].replace(r'\s+', ' ', regex=True)
+    else:
+        print("   ⚠️ Advertencia: No se encontró la columna 'song'. Usando el verso original sin expandir.")
+        df_filtrada['contexto_ampliado'] = df_filtrada['verso_texto']
+
+    print(f"🌊 Deriva disponible: {len(df_filtrada)} bloques de contexto listos.")
     return df_filtrada
 
 def generar_embeddings_piscina(model, textos):
@@ -268,7 +293,7 @@ def main():
         print("⚠️ Piscina latente agotada.")
         return
         
-    textos_piscina = df_piscina['verso_texto'].tolist()
+    textos_piscina = df_piscina['contexto_ampliado'].tolist()
     
     # 3. Preparar el modelo de Inteligencia Artificial
     print(f"\n📦 Cargando Modelo Lingüístico: {MODELO_SOTA}...")
