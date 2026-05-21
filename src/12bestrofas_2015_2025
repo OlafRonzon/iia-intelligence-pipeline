@@ -1,0 +1,84 @@
+import os
+import sys
+import random
+import unicodedata
+import pandas as pd
+from pathlib import Path
+
+dir_src = Path(__file__).resolve().parent
+if str(dir_src) not in sys.path:
+    sys.path.append(str(dir_src))
+from config import DIR_INTERMEDIATE, PATH_CORPUS_CRUDO
+
+DIMS = ['intensidad_AR', 'intensidad_MO', 'intensidad_DI', 'intensidad_PO', 'intensidad_NA', 'intensidad_GO']
+
+def limpiar_texto(texto):
+    if pd.isna(texto): return ""
+    return unicodedata.normalize('NFKC', str(texto).encode('utf-8', 'ignore').decode('utf-8')).strip()
+
+def fragmentar_en_estrofas(letra):
+    if pd.isna(letra): return []
+    letra = str(letra).replace('\r\n', '\n')
+    bloques = letra.split('\n\n')
+    estrofas_finales = []
+    
+    for bloque in bloques:
+        lineas = [l.strip() for l in bloque.split('\n') if l.strip()]
+        if not lineas: continue
+        if len(lineas) > 8:
+            for i in range(0, len(lineas), 4):
+                estrofas_finales.append(" \n ".join(lineas[i:i+4]))
+        else:
+            estrofas_finales.append(" \n ".join(lineas))
+            
+    return estrofas_finales
+
+def main():
+    print("🚀 [Script 12_a] Extrayendo 70 ESTROFAS de la década 2015-2025...")
+    
+    if not PATH_CORPUS_CRUDO.exists():
+        print(f"❌ No se encontró el archivo: {PATH_CORPUS_CRUDO}")
+        return
+        
+    df = pd.read_csv(PATH_CORPUS_CRUDO, encoding='utf-8-sig')
+    
+    # 1. Filtrar por años 2015-2025
+    df['year'] = pd.to_numeric(df['year'], errors='coerce')
+    df_recientes = df[(df['year'] >= 2015) & (df['year'] <= 2025)].copy()
+    
+    # 2. Muestrear 70 canciones máximo
+    n_muestras = min(70, len(df_recientes))
+    df_muestra = df_recientes.sample(n=n_muestras, random_state=42)
+    
+    # 3. Extraer 1 estrofa por canción
+    filas_estrofas = []
+    for _, row in df_muestra.iterrows():
+        letra_limpia = limpiar_texto(row.get('lyrics', ''))
+        estrofas_cancion = fragmentar_en_estrofas(letra_limpia)
+        
+        if estrofas_cancion:
+            # Seleccionar una estrofa al azar de esa canción
+            estrofa_seleccionada = random.choice(estrofas_cancion)
+            
+            fila_base = {
+                'artist': row.get('artist', ''),
+                'song': row.get('song', ''),
+                'year': row.get('year', ''),
+                'texto_entrenamiento': estrofa_seleccionada,
+                'es_util_real': ""
+            }
+            for dim in DIMS:
+                fila_base[dim] = ""
+            filas_estrofas.append(fila_base)
+            
+    df_final = pd.DataFrame(filas_estrofas)
+    
+    # 4. Guardar archivo
+    path_salida = DIR_INTERMEDIATE / "12_a_estrofas_recientes.csv"
+    df_final.to_csv(path_salida, index=False, encoding='utf-8-sig')
+    
+    print(f"🎉 Éxito. Archivo generado con {len(df_final)} estrofas (1 por canción).")
+    print(f"📁 Guardado en: {path_salida}")
+
+if __name__ == "__main__":
+    main()

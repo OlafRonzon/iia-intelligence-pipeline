@@ -1,0 +1,129 @@
+ruta_carpeta = "/content/drive/MyDrive/Datos_Corridos"
+drive.mount('/content/drive')
+from google.colab import drive
+import pandas as pd
+import numpy as np
+import pickle
+import torch
+from sentence_transformers import SentenceTransformer
+import os
+
+# ==========================================
+# RUTAS EN TU GOOGLE DRIVE
+# ==========================================
+CARPETA_DRIVE = "/content/drive/MyDrive/Datos_Corridos"
+PATH_INPUT = f"{CARPETA_DRIVE}/letras_corpus_final.csv"
+PATH_MODELS_IN = f"{CARPETA_DRIVE}/multioutput_xgb_models.pkl"
+
+# Archivos de salida para la auditoría (Ajustados al 8%)
+PATH_UTILES = f"{CARPETA_DRIVE}/07_corpus_10k_utiles_8pct.csv"
+PATH_ZONA_GRIS = f"{CARPETA_DRIVE}/07_corpus_10k_zona_gris_auditoria_8pct.csv"
+
+MODELO_SOTA = 'BAAI/bge-m3'
+DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+BATCH_SIZE = 256
+
+def extraer_y_auditar_v3():
+    print("🚀 Iniciando Módulo de Inferencia (Umbral de Densidad: 8%)")
+    
+    if not os.path.exists(PATH_INPUT):
+        print(f"❌ No se encontró el archivo: {PATH_INPUT}")
+        return
+        
+    print("📂 Cargando dataset de canciones...")
+    df_canciones = pd.read_csv(PATH_INPUT)
+    
+    # 1. EXPLOSIÓN: De Canciones a Versos
+    print("💥 Explotando canciones en versos individuales...")
+    registros_versos = []
+    
+    for idx, row in df_canciones.iterrows():
+        letra = str(row['lyrics'])
+        if pd.isna(letra) or letra.strip() == '':
+            continue
+            
+        versos = [v.strip() for v in letra.split('\n') if len(v.strip()) > 5]
+        
+        for v_idx, verso in enumerate(versos):
+            registros_versos.append({
+                'artist': row.get('artist', 'Desconocido'),
+                'song': row.get('song', 'Desconocido'),
+                'year': row.get('year', 0),
+                'album': row.get('album', 'Desconocido'),
+                'verso_idx': v_idx,
+                'verso_texto': verso
+            })
+            
+    df_versos = pd.DataFrame(registros_versos)
+    
+    # 2. VECTORIZACIÓN
+    print(f"⚡ Vectorizando en [{DEVICE.upper()}]...")
+    encoder = SentenceTransformer(MODELO_SOTA, device=DEVICE)
+    textos = df_versos['verso_texto'].tolist()
+    embeddings = encoder.encode(textos, batch_size=BATCH_SIZE, show_progress_bar=True, device=DEVICE, convert_to_numpy=True)
+    
+    # 3. PREDICCIÓN CON LA CAJA GRIS
+    print("🧠 Clasificando versos...")
+    with open(PATH_MODELS_IN, 'rb') as f:
+        modelos = pickle.load(f)
+        
+    cols_intensidad = []
+    for dim in ['AR', 'MO', 'DI', 'PO', 'NA', 'GO']:
+        preds = modelos[dim].predict(embeddings)
+        col_name = f'intensidad_{dim}'
+        df_versos[col_name] = preds
+        cols_intensidad.append(col_name)
+        
+    # 4. CONDENSACIÓN Y CÁLCULO DE DENSIDAD
+    print("📊 Agrupando de regreso a nivel canción...")
+    df_versos['verso_es_activo'] = (df_versos[cols_intensidad].max(axis=1) > 0).astype(int)
+    
+    dic_agg = {
+        'year': 'first',
+        'album': 'first',
+        'verso_texto': 'count',
+        'verso_es_activo': 'sum'
+    }
+    for c in cols_intensidad: dic_agg[c] = 'max'
+        
+    df_final = df_versos.groupby(['artist', 'song'], as_index=False).agg(dic_agg)
+    df_final['densidad_agenciamiento'] = df_final['verso_es_activo'] / df_final['verso_texto']
+    
+    print("🔗 Fusionando letras originales...")
+    df_final = pd.merge(
+        df_final, 
+        df_canciones[['artist', 'song', 'lyrics']], 
+        on=['artist', 'song'], 
+        how='left'
+    )
+    
+    # 5. SEPARACIÓN DE ZONAS (NUEVO UMBRAL 0.08)
+    print("🔬 Aplicando Filtros (Umbral 8%)...")
+    
+    # A) Oro Puro (>= 8%)
+    df_utiles = df_final[df_final['densidad_agenciamiento'] >= 0.08].sort_values('densidad_agenciamiento', ascending=False)
+    
+    # B) Zona Gris (entre 1% y 7%) 
+    df_gris = df_final[(df_final['densidad_agenciamiento'] > 0) & (df_final['densidad_agenciamiento'] < 0.08)].sort_values('densidad_agenciamiento', ascending=False)
+    
+    # C) Basura absoluta (0%)
+    df_basura = df_final[df_final['densidad_agenciamiento'] == 0]
+    
+    # Renombrar para mayor claridad
+    df_utiles = df_utiles.rename(columns={'verso_texto': 'total_versos', 'verso_es_activo': 'versos_activos'})
+    df_gris = df_gris.rename(columns={'verso_texto': 'total_versos', 'verso_es_activo': 'versos_activos'})
+    
+    # Guardar
+    df_utiles.to_csv(PATH_UTILES, index=False, encoding='utf-8-sig')
+    df_gris.to_csv(PATH_ZONA_GRIS, index=False, encoding='utf-8-sig')
+    
+    print("\n===========================================")
+    print(" 📉 REPORTE DE EXTRACCIÓN (UMBRAL 8%)")
+    print("===========================================")
+    print(f"✅ Canciones Útiles (>= 8%): {len(df_utiles)}")
+    print(f"⚠️ Canciones en Zona Gris (1% - 7%): {len(df_gris)}")
+    print(f"🗑️ Canciones descartadas (0%): {len(df_basura)}")
+    print("===========================================")
+
+if __name__ == "__main__":
+    extraer_y_auditar_v3()

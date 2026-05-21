@@ -1,0 +1,73 @@
+ruta_carpeta = "/content/drive/MyDrive/Datos_Corridos"
+from google.colab import drive
+drive.mount('/content/drive')
+import pandas as pd
+import os
+
+# ==========================================
+# RUTAS EN TU GOOGLE DRIVE
+# ==========================================
+CARPETA_DRIVE = "/content/drive/MyDrive/Datos_Corridos"
+# Volvemos a leer el masivo por versos para poder contar la densidad exacta
+PATH_INPUT = f"{CARPETA_DRIVE}/04_corpus_masivo_etiquetado.csv"
+PATH_OUTPUT = f"{CARPETA_DRIVE}/06_corpus_filtrado_definitivo.csv"
+
+def aplicar_filtro_densidad():
+    print("🚀 Iniciando Módulo 09: Extracción por Umbral de Densidad Semántica (20%)")
+    
+    if not os.path.exists(PATH_INPUT):
+        print(f"❌ No se encontró el archivo de versos en: {PATH_INPUT}")
+        return
+        
+    print("📂 Cargando el corpus microscópico (versos)...")
+    df = pd.read_csv(PATH_INPUT)
+    
+    cols_intensidad = [c for c in df.columns if c.startswith('intensidad_')]
+    
+    # 1. DIAGNÓSTICO DE ACTIVIDAD POR VERSO
+    # Si un verso tiene al menos un 1 en CUALQUIER dimensión, es un "verso activo"
+    df['verso_es_activo'] = (df[cols_intensidad].max(axis=1) > 0).astype(int)
+    
+    # 2. REGLAS METODOLÓGICAS DE AGRUPACIÓN
+    diccionario_agrupacion = {
+        'year': 'first',
+        'verso_texto': 'count',       # Total de versos físicos en la canción
+        'verso_es_activo': 'sum'      # Cuántos de esos versos tienen carga sociológica
+    }
+    
+    # Mantenemos el "Max Pooling" para saber a qué nivel de clímax llegó la canción
+    for col in cols_intensidad:
+        diccionario_agrupacion[col] = 'max'
+        
+    print("📊 Calculando métricas de densidad por canción...")
+    df_canciones = df.groupby(['artist', 'song'], as_index=False).agg(diccionario_agrupacion)
+    
+    df_canciones = df_canciones.rename(columns={
+        'verso_texto': 'total_versos',
+        'verso_es_activo': 'versos_activos'
+    })
+    
+    # 3. EL FILTRO MAESTRO (Densidad Semántica)
+    # Matemáticamente: (versos_activos / total_versos)
+    df_canciones['densidad_agenciamiento'] = df_canciones['versos_activos'] / df_canciones['total_versos']
+    
+    total_canciones_originales = len(df_canciones)
+    
+    # Extraemos solo las que cumplen la regla estricta del >= 20%
+    df_filtrado = df_canciones[df_canciones['densidad_agenciamiento'] >= 0.15].copy()
+    
+    # Ordenamos cronológicamente
+    if 'year' in df_filtrado.columns:
+        df_filtrado = df_filtrado.sort_values('year').reset_index(drop=True)
+    
+    # 4. Guardar resultado final
+    df_filtrado.to_csv(PATH_OUTPUT, index=False, encoding='utf-8-sig')
+    
+    print(f"\n🔬 AUDITORÍA DEL FILTRO UNIVERSAL:")
+    print(f"   ► Canciones totales analizadas: {total_canciones_originales}")
+    print(f"   ► Canciones descartadas (<20% densidad): {total_canciones_originales - len(df_filtrado)}")
+    print(f"   ► CANCIONES ÚTILES DEFINITIVAS: {len(df_filtrado)}")
+    print(f"\n🎉 Base de datos maestra exportada en: {PATH_OUTPUT}")
+
+if __name__ == "__main__":
+    aplicar_filtro_densidad()

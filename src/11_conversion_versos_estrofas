@@ -1,0 +1,89 @@
+import os
+import sys
+import glob
+import unicodedata
+import pandas as pd
+from pathlib import Path
+
+# 1. Alineación con tu arquitectura local
+dir_src = Path(__file__).resolve().parent
+if str(dir_src) not in sys.path:
+    sys.path.append(str(dir_src))
+
+try:
+    # Importamos las rutas oficiales de tu archivo config.py
+    from config import DIR_VALIDATION, DIR_INTERMEDIATE, PATH_CORPUS_CRUDO
+except ImportError as e:
+    print(f"❌ Error al cargar config.py: {e}")
+    sys.exit(1)
+
+DIMS = ['intensidad_AR', 'intensidad_MO', 'intensidad_DI', 'intensidad_PO', 'intensidad_NA', 'intensidad_GO']
+
+# 2. Reparación de codificación y caracteres rotos de Windows/Excel
+def limpiar_texto(texto):
+    if pd.isna(texto): 
+        return ""
+    texto_limpio = str(texto).encode('utf-8', 'ignore').decode('utf-8')
+    return unicodedata.normalize('NFKC', texto_limpio).strip()
+
+# 3. Extracción de la estrofa contenedora (~25 palabras)
+def extraer_estrofa(verso, letra_completa):
+    if not verso or not letra_completa: 
+        return verso
+    lineas = [l.strip() for l in letra_completa.split('\n') if l.strip()]
+    
+    for i, linea in enumerate(lineas):
+        # Tolerancia a variaciones buscando por los primeros 15 caracteres
+        if verso[:15].lower() in linea.lower():
+            inicio = max(0, i - 1)
+            fin = min(len(lineas), i + 2)
+            return " \n ".join(lineas[inicio:fin])
+    return verso
+
+# 4. Pipeline Principal de consolidación
+def main():
+    print("🚀 Iniciando consolidación local y expansión de contexto en Windows...")
+    
+    if not PATH_CORPUS_CRUDO.exists():
+        print(f"❌ No se encontró el corpus crudo en: {PATH_CORPUS_CRUDO}")
+        sys.exit(1)
+        
+    # Cargar el corpus original para indexar las letras completas
+    df_corpus = pd.read_csv(PATH_CORPUS_CRUDO, encoding='utf-8-sig')
+    dict_letras = dict(zip(df_corpus['song'], df_corpus['lyrics'].apply(limpiar_texto)))
+    
+    # Mapeo dinámico de tus 12 archivos en la carpeta de validación manual
+    patron_archivos = str(DIR_VALIDATION / "5_booster_*.csv")
+    archivos_val = glob.glob(patron_archivos)
+    
+    if not archivos_val:
+        print(f"❌ No se encontraron archivos '5_booster_*.csv' en: {DIR_VALIDATION}")
+        sys.exit(1)
+        
+    dfs = []
+    for archivo in archivos_val:
+        df_temp = pd.read_csv(archivo, encoding='utf-8-sig')
+        # Homologar columnas rellenando con 0 las dimensiones ausentes en este archivo
+        for dim in DIMS:
+            if dim not in df_temp.columns:
+                df_temp[dim] = 0
+        dfs.append(df_temp)
+        
+    df_consolidado = pd.concat(dfs, ignore_index=True)
+    print(f"✅ {len(archivos_val)} archivos consolidados. Total muestras: {len(df_consolidado)}")
+    
+    # Ejecutar la expansión de contexto
+    df_consolidado['texto_entrenamiento'] = df_consolidado.apply(
+        lambda row: extraer_estrofa(
+            limpiar_texto(row.get('verso', '')), 
+            dict_letras.get(row.get('song', ''), "")
+        ), axis=1
+    )
+    
+    # Exportación final al directorio intermedio
+    ruta_salida = DIR_INTERMEDIATE / "gold_standard_contexto_expandido.csv"
+    df_consolidado.to_csv(ruta_salida, index=False, encoding='utf-8-sig')
+    print(f"🎉 Éxito. Archivo unificado y expandido listo en: {ruta_salida}")
+
+if __name__ == "__main__":
+    main()

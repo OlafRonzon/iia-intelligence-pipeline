@@ -1,0 +1,97 @@
+import os
+import sys
+import unicodedata
+import pandas as pd
+from pathlib import Path
+
+dir_src = Path(__file__).resolve().parent
+if str(dir_src) not in sys.path:
+    sys.path.append(str(dir_src))
+from config import DIR_INTERMEDIATE
+
+DIMS = ['intensidad_AR', 'intensidad_MO', 'intensidad_DI', 'intensidad_PO', 'intensidad_NA', 'intensidad_GO']
+
+def limpiar_texto(texto):
+    if pd.isna(texto): return ""
+    return unicodedata.normalize('NFKC', str(texto).encode('utf-8', 'ignore').decode('utf-8')).strip()
+
+def fragmentar_en_estrofas(letra):
+    if pd.isna(letra): return []
+    letra = str(letra).replace('\r\n', '\n')
+    bloques = letra.split('\n\n')
+    estrofas_finales = []
+    
+    for bloque in bloques:
+        lineas = [l.strip() for l in bloque.split('\n') if l.strip()]
+        if not lineas: continue
+        if len(lineas) > 8:
+            for i in range(0, len(lineas), 4):
+                estrofas_finales.append(" \n ".join(lineas[i:i+4]))
+        else:
+            estrofas_finales.append(" \n ".join(lineas))
+            
+    return estrofas_finales
+
+def main():
+    print("🚀 [Script 12] Muestreando estrofas (Máximo 2 por canción, Total estricto: 350)...")
+    
+    path_zona_gris = DIR_INTERMEDIATE / "07_corpus_10k_zona_gris_auditoria_8pct.csv"
+    if not path_zona_gris.exists():
+        print(f"❌ No se encontró el archivo: {path_zona_gris}")
+        return
+        
+    df = pd.read_csv(path_zona_gris, encoding='utf-8-sig')
+    
+    col_densidad = 'densidad_agenciamiento' if 'densidad_agenciamiento' in df.columns else 'densidad_semantica'
+    if df[col_densidad].max() <= 1.0:
+        df['densidad_porcentual'] = (df[col_densidad] * 100).round().astype(int)
+    else:
+        df['densidad_porcentual'] = df[col_densidad].round().astype(int)
+
+    filas_estrofas = []
+    
+    # Extraer exactamente 50 estrofas por cada porcentaje (1% al 7%) = 350 total
+    for pct in range(1, 8):
+        # Barajamos las canciones de este porcentaje aleatoriamente
+        df_pct = df[df['densidad_porcentual'] == pct].sample(frac=1, random_state=42)
+        estrofas_acumuladas = 0
+        
+        for _, row in df_pct.iterrows():
+            if estrofas_acumuladas >= 50:
+                break # Pasamos al siguiente porcentaje
+                
+            letra_limpia = limpiar_texto(row.get('lyrics', ''))
+            estrofas_cancion = fragmentar_en_estrofas(letra_limpia)
+            
+            # Desduplicar estrofas idénticas dentro de la misma canción (estribillos)
+            estrofas_unicas = list(dict.fromkeys(estrofas_cancion))
+            
+            # REGLA: Máximo 2 estrofas por canción
+            estrofas_a_usar = estrofas_unicas[:2]
+            
+            for estrofa in estrofas_a_usar:
+                if estrofas_acumuladas >= 50:
+                    break
+                    
+                fila_base = {
+                    'artist': row.get('artist', ''),
+                    'song': row.get('song', ''),
+                    'densidad_porcentual': row['densidad_porcentual'],
+                    'texto_entrenamiento': estrofa,
+                    'es_util_real': ""
+                }
+                for dim in DIMS:
+                    fila_base[dim] = ""
+                    
+                filas_estrofas.append(fila_base)
+                estrofas_acumuladas += 1
+
+    df_final = pd.DataFrame(filas_estrofas)
+    path_salida = DIR_INTERMEDIATE / "12_estrofas_para_validar.csv"
+    df_final.to_csv(path_salida, index=False, encoding='utf-8-sig')
+    
+    print(f"🎉 Éxito. Archivo generado con exactamente {len(df_final)} estrofas.")
+    print(f"📁 Guardado en: {path_salida}")
+
+if __name__ == "__main__":
+    main()
