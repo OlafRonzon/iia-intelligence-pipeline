@@ -1,0 +1,80 @@
+import os
+import pandas as pd
+from pathlib import Path
+from bertopic import BERTopic
+from sentence_transformers import SentenceTransformer
+from umap import UMAP
+from hdbscan import HDBSCAN
+from sklearn.feature_extraction.text import CountVectorizer
+import nltk
+nltk.download('stopwords')
+from nltk.corpus import stopwords
+
+def main():
+    print("🌊 [Paso 20] Iniciando Evolución Orgánica de Ensamblajes (Topics over Time)...")
+    
+    # 1. Rutas Planas en Drive
+    dir_base = Path("/content/drive/MyDrive/Datos_Corridos")
+    path_inferido = dir_base / "14_corpus_10k_inferido_v2.csv"
+    path_raw = dir_base / "corpus_final_agrupado.csv" 
+    
+    # 2. Cruce de datos y Filtro
+    df_10k = pd.read_csv(path_inferido, encoding='utf-8-sig')
+    df_crudo = pd.read_csv(path_raw, encoding='utf-8-sig')
+    
+    df_filtrado = df_10k[df_10k['densidad_semantica_v2'] >= 0.0333]
+    df_final = pd.merge(df_filtrado, df_crudo[['artist', 'song', 'lyrics', 'year']], on=['artist', 'song'], how='inner')
+    df_final = df_final.dropna(subset=['lyrics', 'year'])
+    df_final['year'] = pd.to_numeric(df_final['year'], errors='coerce')
+    df_final = df_final[(df_final['year'] >= 1980) & (df_final['year'] <= 2025)]
+    
+    # Extraer Textos y Marcas de Tiempo
+    textos = df_final['lyrics'].tolist()
+    timestamps = df_final['year'].tolist() # <--- LA VARIABLE CRUCIAL
+    print(f"✅ Corpus listo: {len(textos)} canciones con su ancla temporal.")
+
+    # 3. Limpieza de StopWords
+    stop_words_es = stopwords.words('spanish')
+    muletillas = ['pa', 'ahí', 'si', 'pos', 'bien', 'ya', 'así', 'mas', 'ay', 'voy', 'va', 'pues']
+    stop_words_es.extend(muletillas)
+    vectorizer_model = CountVectorizer(stop_words=stop_words_es, ngram_range=(1, 2))
+
+    # 4. Entrenar el Modelo Base
+    print("🤖 Aislando el 'Alma' de los ensamblajes...")
+    umap_model = UMAP(n_neighbors=15, n_components=5, min_dist=0.0, metric='cosine', random_state=42)
+    hdbscan_model = HDBSCAN(min_cluster_size=15, min_samples=5, metric='euclidean', cluster_selection_method='eom')
+    modelo_emb = SentenceTransformer('BAAI/bge-m3')
+
+    topic_model = BERTopic(
+        embedding_model=modelo_emb,
+        umap_model=umap_model,
+        hdbscan_model=hdbscan_model,
+        vectorizer_model=vectorizer_model,
+        language="spanish",
+        calculate_probabilities=False
+    )
+
+    topics, probs = topic_model.fit_transform(textos)
+    
+    # 5. La Magia: Calcular la Evolución en el Tiempo
+    print("⏳ Rastrenado la mutación del 'Cuerpo' a lo largo del tiempo...")
+    # nr_bins agrupa los años para que la gráfica no sea un caos de picos diarios
+    topics_over_time = topic_model.topics_over_time(textos, timestamps, nr_bins=20)
+    
+    # 6. Guardar Resultados de la Evolución
+    path_csv_tot = dir_base / "20_evolucion_ensamblajes_data.csv"
+    topics_over_time.to_csv(path_csv_tot, index=False, encoding='utf-8-sig')
+    
+    # 7. Exportar Gráfica Interactiva
+    fig = topic_model.visualize_topics_over_time(topics_over_time, top_n_topics=6)
+    fig.update_layout(
+        title="Dinámica de Ensamblajes: Nacimiento, Vida y Mutación de los Tópicos",
+        template="plotly_dark"
+    )
+    
+    path_html = dir_base / "20_grafico_evolucion.html"
+    fig.write_html(str(path_html))
+    print(f"📊 Dashboard exportado a Drive. ¡Descárgalo y observa las olas históricas!")
+
+if __name__ == "__main__":
+    main()
