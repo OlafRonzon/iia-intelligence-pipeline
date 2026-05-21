@@ -22,8 +22,16 @@ def main():
     df_10k = pd.read_csv(path_inferido, encoding='utf-8-sig')
     df_crudo = pd.read_csv(path_raw, encoding='utf-8-sig')
     
+# 2. Cruce de datos y Filtro - CORREGIDO
+    df_10k = pd.read_csv(path_inferido, encoding='utf-8-sig')
+    df_crudo = pd.read_csv(path_raw, encoding='utf-8-sig')
+    
+    # Hacemos el merge trayendo solo lo necesario
+    # El año ya viene en df_10k, así que no lo buscamos en df_crudo
     df_filtrado = df_10k[df_10k['densidad_semantica_v2'] >= 0.0333]
-    df_final = pd.merge(df_filtrado, df_crudo[['artist', 'song', 'lyrics', 'year']], on=['artist', 'song'], how='inner')
+    df_final = pd.merge(df_filtrado, df_crudo[['artist', 'song', 'lyrics']], on=['artist', 'song'], how='inner')
+    
+    # Ahora df_final YA TIENE la columna 'year' porque venía de df_filtrado
     df_final = df_final.dropna(subset=['lyrics', 'year'])
     df_final['year'] = pd.to_numeric(df_final['year'], errors='coerce')
     df_final = df_final[(df_final['year'] >= 1980) & (df_final['year'] <= 2025)]
