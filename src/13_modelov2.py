@@ -30,7 +30,7 @@ try:
     
     # OVERRIDE PARA COLAB: Si tus datos pesados viven en Drive y no en el repo clonado
     if IN_COLAB:
-        DIR_INTERMEDIATE = Path("/content/drive/MyDrive/Datos_Corridos/data/02_intermediate")
+        DIR_INTERMEDIATE = Path("/content/drive/MyDrive/Datos_Corridos")
 except ImportError as e:
     print(f"❌ Error al cargar config.py: {e}")
     sys.exit(1)
