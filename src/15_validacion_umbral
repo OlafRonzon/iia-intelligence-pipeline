@@ -1,0 +1,143 @@
+import os
+import sys
+import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from sklearn.metrics import roc_curve, auc, precision_recall_curve
+from pathlib import Path
+import webbrowser
+
+# 1. Configuración de Rutas Locales
+dir_src = Path(__file__).resolve().parent
+if str(dir_src) not in sys.path:
+    sys.path.append(str(dir_src))
+
+try:
+    from config import DIR_INTERMEDIATE
+except ImportError:
+    BASE_DIR = Path(os.getcwd())
+    DIR_INTERMEDIATE = BASE_DIR / "data" / "02_intermediate"
+
+def main():
+    print("🎯 Iniciando Optimización Empírica del Umbral desde Estrofas Validadas...")
+    
+    path_corpus_v2 = DIR_INTERMEDIATE / "14_corpus_10k_inferido_v2.csv"
+    path_12 = DIR_INTERMEDIATE / "12_estrofas_para_validar.csv"
+    path_12a = DIR_INTERMEDIATE / "12_a_estrofas_recientes.csv"
+    
+    if not path_corpus_v2.exists():
+        print(f"❌ No se encontró el corpus inferido en: {path_corpus_v2}")
+        print("Por favor, asegúrate de haber descargado el archivo del paso 14 a tu PC.")
+        return
+
+    # 2. Cargar y consolidar la auditoría manual de estrofas
+    dfs_auditoria = []
+    for p in [path_12, path_12a]:
+        if p.exists():
+            print(f"📖 Cargando archivo de auditoría: {p.name}")
+            df_tmp = pd.read_csv(p, encoding='utf-8-sig')
+            # Filtrar para usar solo las filas que efectivamente validaste
+            df_tmp = df_tmp.dropna(subset=['es_util_real'])
+            dfs_auditoria.append(df_tmp)
+            
+    if not dfs_auditoria:
+        print("❌ No se encontraron los archivos 12 o 12_a, o están vacíos en la columna 'es_util_real'.")
+        return
+        
+    df_auditoria_completa = pd.concat(dfs_auditoria, ignore_index=True)
+    
+    # Asegurar que es_util_real sea estrictamente numérico entero (0 o 1)
+    df_auditoria_completa['es_util_real'] = pd.to_numeric(df_auditoria_completa['es_util_real'], errors='coerce').fillna(0).astype(int)
+    
+    # REGLA DE AGREGACIÓN HERMENÉUTICA A NIVEL CANCIÓN: 
+    # Si al menos una estrofa de la canción es real/útil (1), la canción se clasifica como Útil (1).
+    # Si todas las estrofas evaluadas de la canción son 0, la canción se clasifica como Ruido (0).
+    df_canciones_true = df_auditoria_completa.groupby(['artist', 'song'])['es_util_real'].max().reset_index()
+    print(f"✅ Consolidadas {len(df_canciones_true)} canciones únicas a partir de tus estrofas.")
+    print(f"   -> Canciones Útiles comprobadas: {len(df_canciones_true[df_canciones_true['es_util_real'] == 1])}")
+    print(f"   -> Canciones de Ruido comprobadas: {len(df_canciones_true[df_canciones_true['es_util_real'] == 0])}")
+
+    # 3. Cruzar con el Corpus Inferido V2 para obtener la nueva Densidad Semántica
+    df_v2 = pd.read_csv(path_corpus_v2, encoding='utf-8-sig')
+    
+    df_cruce = pd.merge(
+        df_canciones_true,
+        df_v2[['artist', 'song', 'densidad_semantica_v2']],
+        on=['artist', 'song'],
+        how='inner'
+    )
+    
+    if len(df_cruce) == 0:
+        print("❌ Error de cruce: No hubo coincidencias exactas de [artist, song] entre tus validaciones y el corpus v2.")
+        return
+        
+    print(f"📊 Evaluando curvas matemáticas sobre {len(df_cruce)} canciones emparejadas con éxito...")
+
+    y_true = df_cruce['es_util_real'].values
+    y_scores = df_cruce['densidad_semantica_v2'].values
+
+    # 4. Calcular Curvas de Rendimiento (ROC y Precision-Recall)
+    fpr, tpr, _ = roc_curve(y_true, y_scores)
+    roc_auc = auc(fpr, tpr)
+    
+    precision, recall, thresholds_pr = precision_recall_curve(y_true, y_scores)
+    
+    # Calcular el F1-Score para cada umbral de densidad matemática posible
+    f1_scores = []
+    for i in range(len(thresholds_pr)):
+        p = precision[i]
+        r = recall[i]
+        f1 = 2 * (p * r) / (p + r) if (p + r) > 0 else 0
+        f1_scores.append(f1)
+        
+    # Encontrar el umbral óptimo exacto (El que maximiza el F1-Score)
+    idx_optimo = np.argmax(f1_scores)
+    umbral_optimo = thresholds_pr[idx_optimo]
+    f1_maximo = f1_scores[idx_optimo]
+
+    print("\n" + "="*50)
+    print(f"🎉 ¡OPTIMIZACIÓN COMPLETADA CON TUS DATOS REALES!")
+    print(f"   -> Área bajo la curva (ROC-AUC): {roc_auc:.3f}")
+    print(f"   -> Umbral Óptimo Encontrado: {umbral_optimo:.4f} ({(umbral_optimo*100):.2f}% de densidad)")
+    print(f"   -> F1-Score Máximo alcanzado: {f1_maximo:.3f}")
+    print("="*50)
+
+    # 5. Graficar la Evidencia Causal (Dashboard HTML)
+    fig = make_subplots(
+        rows=1, cols=2, 
+        subplot_titles=(f"Curva ROC (AUC = {roc_auc:.2f})", "Optimización F1-Score por Umbral")
+    )
+
+    # Subplot 1: Curva ROC
+    fig.add_trace(go.Scatter(x=fpr, y=tpr, mode='lines', name='Curva ROC', line=dict(color='#00CC96', width=3)), row=1, col=1)
+    fig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', name='Línea Base (Aleatoria)', line=dict(color='gray', dash='dash')), row=1, col=1)
+
+    # Subplot 2: F1-Score vs Umbrales
+    fig.add_trace(go.Scatter(x=thresholds_pr, y=f1_scores, mode='lines', name='Evolución F1', line=dict(color='#AB63FA', width=3)), row=1, col=2)
+    
+    # Marcar con un punto blanco el umbral matemático óptimo
+    fig.add_trace(go.Scatter(
+        x=[umbral_optimo], y=[f1_maximo], mode='markers', 
+        name=f'Punto Óptimo (Densidad: {umbral_optimo:.3f})', 
+        marker=dict(color='white', size=12, line=dict(color='red', width=2))
+    ), row=1, col=2)
+
+    fig.update_layout(
+        title='Optimización Empírica del Umbral de Densidad Semántica (Step 15)',
+        template='plotly_dark', hovermode='x unified'
+    )
+    
+    fig.update_xaxes(title_text="Tasa de Falsos Positivos (FPR)", row=1, col=1)
+    fig.update_yaxes(title_text="Tasa de Verdaderos Positivos (TPR)", row=1, col=1)
+    fig.update_xaxes(title_text="Umbral de Densidad Semántica V2", row=1, col=2)
+    fig.update_yaxes(title_text="F1-Score", row=1, col=2)
+
+    path_html = DIR_INTERMEDIATE / "15_optimizacion_umbral_roc.html"
+    fig.write_html(str(path_html))
+    print(f"\n🖥️ Dashboard guardado con éxito en: {path_html.name}")
+    print("Abriendo gráfico interactivo en tu navegador web...")
+    webbrowser.open('file://' + str(path_html.absolute()))
+
+if __name__ == "__main__":
+    main()

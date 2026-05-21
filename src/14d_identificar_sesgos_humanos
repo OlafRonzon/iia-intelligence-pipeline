@@ -1,0 +1,29 @@
+import pandas as pd
+from pathlib import Path
+
+# Carga tu dataset base validado
+# Ajusta el nombre si tu archivo gold standard se llama diferente
+path = Path("data/02_intermediate/gold_standard_contexto_expandido.csv")
+
+if not path.exists():
+    print(f"❌ No encuentro el archivo: {path}")
+else:
+    df = pd.read_csv(path)
+    dims = ['intensidad_AR', 'intensidad_MO', 'intensidad_DI', 'intensidad_PO', 'intensidad_NA', 'intensidad_GO']
+    
+    print("📊 RADIOGRAFÍA DE TU VALIDACIÓN MANUAL (Qué le enseñaste al modelo)")
+    print("-" * 60)
+    
+    for dim in dims:
+        # Contamos cuántas veces pusiste 0, 1, 2 o 3
+        conteo = df[dim].value_counts().sort_index()
+        total = conteo.sum()
+        
+        # Cuántas veces le enseñaste al modelo que SÍ había esta dimensión (valores > 0)
+        casos_activos = conteo[conteo.index > 0].sum() if len(conteo[conteo.index > 0]) > 0 else 0
+        porcentaje = (casos_activos / total) * 100
+        
+        print(f"Dimensión: {dim.replace('intensidad_', '')}")
+        print(f"  -> Ejemplos donde marcaste presencia (>0): {casos_activos} estrofas ({porcentaje:.1f}%)")
+        print(f"  -> Desglose de tus etiquetas: {dict(conteo)}")
+        print("-" * 60)

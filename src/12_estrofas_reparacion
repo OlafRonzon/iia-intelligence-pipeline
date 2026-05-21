@@ -1,0 +1,138 @@
+import os
+import sys
+import pandas as pd
+import unicodedata
+from pathlib import Path
+
+def limpiar_texto(texto):
+    if pd.isna(texto): return ""
+    return unicodedata.normalize('NFKC', str(texto).encode('utf-8', 'ignore').decode('utf-8')).strip()
+
+def normalizar_para_busqueda(texto):
+    if pd.isna(texto): return ""
+    t = limpiar_texto(texto).lower().replace('\n', ' ').replace('\r', ' ')
+    return " ".join(t.split())
+
+def fragmentar_en_estrofas(letra):
+    if pd.isna(letra): return []
+    letra = str(letra).replace('\r\n', '\n')
+    bloques = letra.split('\n\n')
+    estrofas_finales = []
+    
+    for bloque in bloques:
+        lineas = [l.strip() for l in bloque.split('\n') if l.strip()]
+        if not lineas: continue
+        if len(lineas) > 8:
+            for i in range(0, len(lineas), 4):
+                estrofas_finales.append(" \n ".join(lineas[i:i+4]))
+        else:
+            estrofas_finales.append(" \n ".join(lineas))
+    return estrofas_finales
+
+def main():
+    print("🧬 Iniciando Recombinación Genética del Gold Standard...")
+    
+    BASE_DIR = Path(os.getcwd())
+    DIR_INTERMEDIATE = BASE_DIR / "data" / "02_intermediate"
+    
+    path_corpus = DIR_INTERMEDIATE / "corpus_final_agrupado.csv"
+    if not path_corpus.exists():
+        print(f"❌ No encuentro el corpus completo en: {path_corpus}")
+        return
+
+    print("📖 Cargando corpus de letras completas...")
+    df_corpus = pd.read_csv(path_corpus, encoding='utf-8-sig')
+    
+    todos_los_archivos = list(BASE_DIR.rglob("5_booster_*.csv"))
+    if not todos_los_archivos:
+        print("❌ No se encontraron los archivos booster.")
+        return
+
+    DIMS = ['AR', 'MO', 'DI', 'PO', 'NA', 'GO']
+    filas_boosters = []
+
+    print("🔍 Extrayendo tus validaciones manuales de los boosters...")
+    for arch in todos_los_archivos:
+        df_temp = pd.read_csv(arch, encoding='utf-8-sig')
+        dim_actual = next((d for d in DIMS if f"_{d}" in arch.name), None)
+        if not dim_actual: continue
+            
+        # --- AQUÍ ESTÁ LA CORRECCIÓN EXACTA DE LOS NOMBRES ---
+        col_val_origen = f'val_{dim_actual}' 
+        col_texto_origen = 'verso_texto'
+        
+        for _, row in df_temp.iterrows():
+            val = pd.to_numeric(row.get(col_val_origen, 0), errors='coerce')
+            if pd.isna(val): val = 0
+            
+            # Mapeamos a los nombres estándar ('intensidad_...') que espera el modelo V2
+            filas_boosters.append({
+                'artist': row.get('artist', ''),
+                'song': row.get('song', ''),
+                'verso': row.get(col_texto_origen, ''),
+                f'intensidad_{dim_actual}': int(val)
+            })
+
+    # Agrupar para juntar las 6 dimensiones en una sola fila por verso
+    df_versos = pd.DataFrame(filas_boosters).groupby(['artist', 'song', 'verso']).max().fillna(0).reset_index()
+    
+    for d in DIMS:
+        if f'intensidad_{d}' not in df_versos.columns:
+            df_versos[f'intensidad_{d}'] = 0
+            
+    print(f"✅ Se consolidaron {len(df_versos)} versos únicos validados por ti.")
+
+    print("🧩 Buscando los versos dentro de las estrofas completas...")
+    filas_finales = []
+    versos_encontrados = 0
+
+    for _, row_verso in df_versos.iterrows():
+        artista = row_verso['artist']
+        cancion = row_verso['song']
+        verso_str = row_verso['verso']
+        
+        cancion_full = df_corpus[(df_corpus['artist'] == artista) & (df_corpus['song'] == cancion)]
+        
+        if not cancion_full.empty:
+            letra_completa = cancion_full.iloc[0]['lyrics']
+            estrofas = fragmentar_en_estrofas(letra_completa)
+            verso_norm = normalizar_para_busqueda(verso_str)
+            
+            estrofa_match = ""
+            for estrofa in estrofas:
+                if verso_norm in normalizar_para_busqueda(estrofa):
+                    estrofa_match = estrofa
+                    break
+            
+            if estrofa_match:
+                fila_expandida = {'artist': artista, 'song': cancion, 'texto_entrenamiento': estrofa_match}
+                for d in DIMS: fila_expandida[f'intensidad_{d}'] = row_verso[f'intensidad_{d}']
+                filas_finales.append(fila_expandida)
+                versos_encontrados += 1
+            else:
+                fila_expandida = {'artist': artista, 'song': cancion, 'texto_entrenamiento': verso_str}
+                for d in DIMS: fila_expandida[f'intensidad_{d}'] = row_verso[f'intensidad_{d}']
+                filas_finales.append(fila_expandida)
+        else:
+            fila_expandida = {'artist': artista, 'song': cancion, 'texto_entrenamiento': verso_str}
+            for d in DIMS: fila_expandida[f'intensidad_{d}'] = row_verso[f'intensidad_{d}']
+            filas_finales.append(fila_expandida)
+
+    # 4. Guardar el Gold Standard para que el Modelo V2 lo lea
+    df_gold_nuevo = pd.DataFrame(filas_finales)
+    path_salida = DIR_INTERMEDIATE / "gold_standard_contexto_expandido.csv"
+    df_gold_nuevo.to_csv(path_salida, index=False, encoding='utf-8-sig')
+
+    print("\n" + "="*50)
+    print(f"🎉 ¡RECONSTRUCCIÓN EXITOSA!")
+    print(f"Versos emparejados perfectamente con su estrofa: {versos_encontrados}")
+    
+    print("\n📊 Confirmación de Memoria Restaurada (Estrofas con valor > 0):")
+    for d in DIMS:
+        col = f'intensidad_{d}'
+        activos = (df_gold_nuevo[col] > 0).sum()
+        print(f"   -> {d}: {activos} ejemplos listos para entrenar.")
+    print("="*50)
+
+if __name__ == "__main__":
+    main()

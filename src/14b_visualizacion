@@ -1,0 +1,100 @@
+import os
+import sys
+import pandas as pd
+import plotly.graph_objects as go
+from pathlib import Path
+import webbrowser
+
+# 1. Configuración de Rutas Locales
+dir_src = Path(__file__).resolve().parent
+if str(dir_src) not in sys.path:
+    sys.path.append(str(dir_src))
+
+try:
+    from config import DIR_INTERMEDIATE
+except ImportError:
+    BASE_DIR = Path(os.getcwd())
+    DIR_INTERMEDIATE = BASE_DIR / "data" / "02_intermediate"
+
+DIMS = ['intensidad_AR', 'intensidad_MO', 'intensidad_DI', 'intensidad_PO', 'intensidad_NA', 'intensidad_GO']
+
+def main():
+    print("📊 Iniciando Motor de Visualización Exploratoria Local...")
+    
+    path_corpus = DIR_INTERMEDIATE / "14_corpus_10k_inferido_v2.csv"
+    if not path_corpus.exists():
+        print(f"❌ No se encontró el archivo: {path_corpus}")
+        print("Asegúrate de haberlo descargado de tu Drive a tu PC local.")
+        return
+
+    # 2. Carga y Limpieza Temporal
+    df = pd.read_csv(path_corpus, encoding='utf-8-sig')
+    df['year'] = pd.to_numeric(df['year'], errors='coerce')
+    
+    # Filtrar años ilógicos o muy antiguos con pocos datos para evitar ruido
+    df = df[(df['year'] >= 1970) & (df['year'] <= 2025)].copy()
+    
+    # 3. Agrupación Histórica (Promedios por Año)
+    # Calculamos la media de la Densidad Semántica y de las intensidades promedio
+    cols_a_promediar = ['densidad_semantica_v2'] + [f'{dim}_avg' for dim in DIMS]
+    historico = df.groupby('year')[cols_a_promediar].mean().reset_index()
+    
+    # Aplicar un suavizado (Rolling Mean de 3 años) para ver tendencias claras
+    historico_suave = historico.copy()
+    for col in cols_a_promediar:
+        historico_suave[col] = historico[col].rolling(window=3, min_periods=1, center=True).mean()
+
+    # 4. Construcción del Dashboard Interactivo (Plotly)
+    fig = go.Figure()
+
+    # Diccionario de colores y nombres legibles
+    nombres = {
+        'densidad_semantica_v2': 'Densidad Semántica (General)',
+        'intensidad_AR_avg': 'Armas',
+        'intensidad_MO_avg': 'Vehículo como: transporte de guerra/logístico',
+        'intensidad_DI_avg': 'Dinero/Lujos',
+        'intensidad_PO_avg': 'Poder',
+        'intensidad_NA_avg': 'Narcóticos:Producción/Consumo',
+        'intensidad_GO_avg': 'Gobierno/Estado'
+    }
+
+    # Agregar cada línea al gráfico
+    for col in cols_a_promediar:
+        grosor = 4 if col == 'densidad_semantica_v2' else 2
+        dash_style = 'solid' if col == 'densidad_semantica_v2' else 'dot'
+        
+        fig.add_trace(go.Scatter(
+            x=historico_suave['year'], 
+            y=historico_suave[col],
+            mode='lines',
+            name=nombres[col],
+            line=dict(width=grosor, dash=dash_style),
+            hovertemplate='<b>Año: %{x}</b><br>Valor: %{y:.3f}<extra></extra>'
+        ))
+
+    # Diseño y formato profesional
+    fig.update_layout(
+        title='Evolución Histórica de la Topología del Agenciamiento (1970-2025)',
+        xaxis_title='Año',
+        yaxis_title='Intensidad Promedio (Suavizada)',
+        template='plotly_dark', # Tema oscuro profesional
+        hovermode='x unified',
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=-0.3,
+            xanchor="center",
+            x=0.5
+        )
+    )
+
+    # 5. Exportar y Abrir
+    path_html = DIR_INTERMEDIATE / "dashboard_evolucion_v2.html"
+    fig.write_html(str(path_html))
+    
+    print(f"🎉 Dashboard interactivo generado con éxito en: {path_html}")
+    print("Abriendo automáticamente en tu navegador web...")
+    webbrowser.open('file://' + str(path_html.absolute()))
+
+if __name__ == "__main__":
+    main()
