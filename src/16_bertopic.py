@@ -9,22 +9,20 @@ from hdbscan import HDBSCAN
 def main():
     print("🧬 [Paso 17] Iniciando Extracción de ADN Semántico con BERTopic...")
     
-    # 1. Rutas exactas a tu carpeta intermediate en Drive
-    dir_base_drive = Path("/content/drive/MyDrive/Datos_Corridos")
-    dir_intermediate = dir_base_drive / "data" / "02_intermediate"
+    # 1. Ruta plana directa a tu carpeta en Drive
+    dir_base = Path("/content/drive/MyDrive/Datos_Corridos")
     
-    path_inferido = dir_intermediate / "14_corpus_10k_inferido_v2.csv"
-    # Usamos tu archivo original agrupado que sí tiene las letras completas
-    path_raw = dir_intermediate / "corpus_final_agrupado.csv" 
+    path_inferido = dir_base / "14_corpus_10k_inferido_v2.csv"
+    path_raw = dir_base / "corpus_final_agrupado.csv" 
     
     if not path_inferido.exists():
-        print(f"❌ No encuentro: {path_inferido.name}")
+        print(f"❌ No encuentro: {path_inferido}")
         return
     if not path_raw.exists():
-        print(f"❌ No encuentro: {path_raw.name}")
+        print(f"❌ No encuentro: {path_raw}")
         return
 
-    # 2. El "BuscarV" rápido (toma 2 segundos, no 30 minutos)
+    # 2. El "BuscarV" rápido para armar las letras
     print("📖 Cruzando los ganadores con sus letras originales...")
     df_10k = pd.read_csv(path_inferido, encoding='utf-8-sig')
     df_crudo = pd.read_csv(path_raw, encoding='utf-8-sig')
@@ -43,7 +41,7 @@ def main():
     if len(textos) == 0:
         return
 
-    # 3. BERTopic (Solo leerá las 1,300 canciones, tomará ~2 minutos)
+    # 3. BERTopic (Solo leerá las canciones filtradas)
     print("🤖 Extrayendo los clústeres latentes...")
     umap_model = UMAP(n_neighbors=15, n_components=5, min_dist=0.0, metric='cosine', random_state=42)
     hdbscan_model = HDBSCAN(min_cluster_size=15, min_samples=5, metric='euclidean', cluster_selection_method='eom')
@@ -59,15 +57,15 @@ def main():
 
     topics, probs = topic_model.fit_transform(textos)
     
-    # 4. Guardar resultados
-    path_csv = dir_intermediate / "17_bertopic_resumen.csv"
+    # 4. Guardar resultados directamente en Datos_Corridos
+    path_csv = dir_base / "17_bertopic_resumen.csv"
     topic_model.get_topic_info().to_csv(path_csv, index=False, encoding='utf-8-sig')
     print(f"💾 Resumen guardado en: {path_csv.name}")
 
     fig = topic_model.visualize_barchart(top_n_topics=12, n_words=8, title="ADN Semántico: Tópicos Latentes")
     fig.update_layout(template="plotly_dark")
     
-    path_html = dir_intermediate / "17_grafico_topicos.html"
+    path_html = dir_base / "17_grafico_topicos.html"
     fig.write_html(str(path_html))
     print(f"📊 Gráfico guardado en: {path_html.name}")
 
