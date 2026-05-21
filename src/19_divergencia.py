@@ -1,3 +1,14 @@
+BASE_DIR = Path(os.getcwd())
+DIR_INTERMEDIATE = BASE_DIR / "data" / "02_intermediate"
+    
+    # Leemos el archivo base desde intermediate
+path_df = DIR_INTERMEDIATE / "14_corpus_10k_inferido_v2.csv"
+    
+df_10k = pd.read_csv(path_df, encoding='utf-8-sig')
+    
+    # Filtro Dinámico
+UMBRAL = 0.0333
+df = df_10k[df_10k['densidad_semantica_v2'] >= UMBRAL].copy()
 import os
 import numpy as np
 import pandas as pd
@@ -14,16 +25,25 @@ def obtener_distribucion(df_lustro, dimensiones):
 def main():
     print("🦋 [Paso 19] Calculando Metamorfosis Cualitativa (JSD)...")
     
-    BASE_DIR = Path(os.getcwd())
-    path_df = BASE_DIR / "data" / "02_intermediate" / "16_CORPUS_DEFINITIVO_TESIS.csv"
+    # 1. Leer archivo base
+    path_df = Path("14_corpus_10k_inferido_v2.csv")
     
-    df = pd.read_csv(path_df)
+    if not path_df.exists():
+        print(f"❌ No encuentro: {path_df.name}. Ponlo en la misma carpeta que este script.")
+        return
+        
+    df_10k = pd.read_csv(path_df, encoding='utf-8-sig')
+    
+    # 2. FILTRO DINÁMICO
+    UMBRAL = 0.0333
+    df = df_10k[df_10k['densidad_semantica_v2'] >= UMBRAL].copy()
+    
     df['year'] = pd.to_numeric(df['year'], errors='coerce')
     df = df.dropna(subset=['year'])
+    df = df[(df['year'] >= 1970) & (df['year'] <= 2025)]
     
     DIMS = ['intensidad_AR_avg', 'intensidad_MO_avg', 'intensidad_DI_avg', 'intensidad_PO_avg', 'intensidad_NA_avg', 'intensidad_GO_avg']
     
-    # Crear Lustros (Periodos de 5 años)
     df['lustro'] = (df['year'] // 5) * 5
     lustros = sorted(df['lustro'].unique())
     
@@ -36,7 +56,6 @@ def main():
         P = obtener_distribucion(df[df['lustro'] == lustro_previo], DIMS)
         Q = obtener_distribucion(df[df['lustro'] == lustro_actual], DIMS)
         
-        # Calcular JSD (Elevado al cuadrado da la divergencia matemática real)
         js_div = jensenshannon(P, Q) ** 2 
         
         resultados.append({
@@ -45,9 +64,9 @@ def main():
         })
 
     df_res = pd.DataFrame(resultados)
-    df_res.to_csv(BASE_DIR / "data" / "02_intermediate" / "19_jsd_metamorfosis.csv", index=False)
+    df_res.to_csv("19_jsd_metamorfosis.csv", index=False, encoding='utf-8-sig')
 
-    # GRAFICAR
+    # 3. GRAFICAR
     fig = go.Figure(data=[
         go.Bar(
             x=df_res['periodo'], 
@@ -65,7 +84,7 @@ def main():
         template="plotly_dark"
     )
     
-    path_html = BASE_DIR / "data" / "02_intermediate" / "19_grafico_jsd.html"
+    path_html = Path("19_grafico_jsd.html")
     fig.write_html(str(path_html))
     print(f"🎉 Gráfico exportado. Abriendo en navegador...")
     webbrowser.open('file://' + str(path_html.absolute()))
