@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 import unicodedata
 from pathlib import Path
-from sentence_transformers import TransformerConfig, SentenceTransformer
+from sentence_transformers import SentenceTransformer
 
 # ==========================================
 # 1. CONFIGURACIÓN HÍBRIDA (LOCAL / COLAB)
