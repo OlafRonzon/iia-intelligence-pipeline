@@ -70,15 +70,41 @@ def main():
     hdbscan_model = HDBSCAN(min_cluster_size=15, min_samples=5, metric='euclidean', cluster_selection_method='eom')
     modelo_emb = SentenceTransformer('BAAI/bge-m3')
 
-    print("🤖 Extrayendo los clústeres latentes...")
+    print("🤖 Configurando BERTopic...")
     topic_model = BERTopic(
         embedding_model=modelo_emb,
         umap_model=umap_model,
         hdbscan_model=hdbscan_model,
-        vectorizer_model=vectorizer_model, # <--- AHORA SÍ SE APLICARÁ EL FILTRO
-        # language="spanish", # <--- ELIMINAMOS ESTO PARA EVITAR CONFLICTOS
+        vectorizer_model=vectorizer_model,
         calculate_probabilities=False
     )
+
+    # --- NUEVA RED DE SEGURIDAD ---
+    # Verificamos que realmente tengamos letras para analizar
+    cantidad_textos = len(textos)
+    print(f"Letras listas para procesar: {cantidad_textos}")
+
+    if cantidad_textos == 0:
+        print("⚠️ ALERTA: No hay canciones para analizar. Revisa el filtro de densidad semántica.")
+    else:
+        print("🧠 Entrenando el modelo (haciendo fit)... Esto puede tomar unos minutos.")
+        # ESTA ES LA LÍNEA CRÍTICA QUE RESUELVE TU ERROR:
+        topics, probs = topic_model.fit_transform(textos)
+        
+        # 5. Exportar Resultados
+        print("💾 Guardando resultados...")
+        path_csv = dir_base / "17_bertopic_resumen.csv"
+        
+        # Como ya hicimos fit_transform, get_topic_info() funcionará perfectamente
+        topic_model.get_topic_info().to_csv(path_csv, index=False, encoding='utf-8-sig')
+        
+        # Generar gráfica de barras
+        fig = topic_model.visualize_barchart(top_n_topics=12, n_words=8, title="ADN Semántico: Tópicos Latentes (Limpio)")
+        fig.update_layout(template="plotly_dark")
+        
+        path_html = dir_base / "17_grafico_topicos.html"
+        fig.write_html(str(path_html))
+        print(f"📊 Dashboard exportado. ¡Descarga y ábrelo!")
     
     # 5. Exportar Resultados
     path_csv = dir_base / "17_bertopic_resumen.csv"
