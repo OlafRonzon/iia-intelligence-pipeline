@@ -36,14 +36,34 @@ def main():
     textos = df_final['lyrics'].tolist()
     print(f"✅ Se armó el corpus en memoria con {len(textos)} letras completas.")
 
-    # 3. EL FILTRO DE STOP WORDS (LA MAGIA AQUÍ)
+# 3. EL FILTRO DE STOP WORDS (LA MAGIA MEJORADA AQUÍ)
     print("🧹 Preparando filtro de palabras vacías y jerga...")
+    
+    # Obtenemos las stopwords de NLTK
     stop_words_es = stopwords.words('spanish')
+    
     # Agregamos muletillas propias de la música regional
     muletillas_regionales = ['pa', 'ahí', 'si', 'pos', 'bien', 'ya', 'así', 'mas', 'ay', 'voy', 'va', 'pues']
-    stop_words_es.extend(muletillas_regionales)
     
-    vectorizer_model = CountVectorizer(stop_words=stop_words_es, ngram_range=(1, 2))
+    # Unimos todo en una sola lista
+    todas_las_stopwords = stop_words_es + muletillas_regionales
+
+    # TRUCO: Quitamos acentos de las stopwords para que el filtro sea infalible
+    import unicodedata
+    def limpiar_acentos(texto):
+        return ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
+    
+    stopwords_limpias = [limpiar_acentos(palabra).lower() for palabra in todas_las_stopwords]
+    
+    # Aseguramos explícitamente a los "rebeldes" que vimos en tu gráfica
+    stopwords_limpias.extend(['la', 'los', 'el', 'de', 'las', 'un', 'una', 'en', 'que', 'me', 'se', 'su', 'mi'])
+
+    # Configuramos el vectorizador obligándolo a ignorar acentos en las letras
+    vectorizer_model = CountVectorizer(
+        stop_words=stopwords_limpias, 
+        ngram_range=(1, 2),
+        strip_accents='unicode' # <--- CLAVE PARA QUE COINCIDAN LOS TEXTOS
+    )
 
     # 4. Configurar Modelos
     umap_model = UMAP(n_neighbors=15, n_components=5, min_dist=0.0, metric='cosine', random_state=42)
@@ -55,12 +75,10 @@ def main():
         embedding_model=modelo_emb,
         umap_model=umap_model,
         hdbscan_model=hdbscan_model,
-        vectorizer_model=vectorizer_model, # <--- INYECTAMOS EL FILTRO AQUÍ
-        language="spanish",
+        vectorizer_model=vectorizer_model, # <--- AHORA SÍ SE APLICARÁ EL FILTRO
+        # language="spanish", # <--- ELIMINAMOS ESTO PARA EVITAR CONFLICTOS
         calculate_probabilities=False
     )
-
-    topics, probs = topic_model.fit_transform(textos)
     
     # 5. Exportar Resultados
     path_csv = dir_base / "17_bertopic_resumen.csv"
